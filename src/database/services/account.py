@@ -11,21 +11,21 @@ class AccountManager:
     def __init__(self, client: Client):
         self.client: Client = client
 
-    def login_account(self, login: str, password: str) -> bool:
+    def login_account(self, login: str, password: str) -> str | None:
         response: list = self.client.table("accounts").select("name, job, password").eq("login", login).execute().data
 
         if not response:
             logger.error("Неверный логин или пароль")
-            return False
+            return None
 
         account = response[0]
         hashed_password = account["password"]
         if not bcrypt.checkpw(password.encode(), hashed_password.encode()):
             logger.error("Неверный логин или пароль")
-            return False
+            return None
 
         logger.info(f"Аккаунт найден! Имя: {account["name"]}, Роль: {account["job"]}")
-        return True
+        return account["job"]
 
     def register_account(self, name: str, new_login: str, new_password: str) -> int | None:
         if not name or not new_login or not new_password:

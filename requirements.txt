@@ -1,3 +1,5 @@
 pytest
 pyside6~=6.10.0
 supabase>=2.23.3
+bcrypt
+dotenv

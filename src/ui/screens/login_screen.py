@@ -1,11 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit,
     QPushButton, QStackedWidget, QSpacerItem,
-    QSizePolicy
+    QSizePolicy, QLabel
 )
 
 from src.database import account_manager
-from src.ui import Screens
+from src.ui import Screens, Roles
+from src.ui.screens.cashier_screen import CashierScreen
+
 
 class LoginScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
@@ -13,6 +15,9 @@ class LoginScreen(QWidget):
         self.stack_widget = stack_widget
         self.setWindowTitle("Вход")
         layout = QVBoxLayout()
+
+        self.error_label = QLabel()
+        self.error_label.hide()
 
         self.login_input = QLineEdit()
         self.login_input.setPlaceholderText("Логин")
@@ -24,6 +29,7 @@ class LoginScreen(QWidget):
         login_button = QPushButton("Войти")
         login_button.clicked.connect(self.login)
 
+        layout.addWidget(self.error_label)
         layout.addWidget(self.login_input)
         layout.addWidget(self.password_input)
         layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Policy.Expanding))
@@ -32,5 +38,42 @@ class LoginScreen(QWidget):
         self.setLayout(layout)
 
     def login(self):
-        if account_manager.login_account(self.login_input.text(), self.password_input.text()):
-            self.stack_widget.setCurrentIndex(Screens.REGISTER_SCREEN.value)
+        self.check_errors()
+
+        role_to_screen = {
+            Roles.MANAGER.value: Screens.MANAGER_SCREEN.value,
+            Roles.CASHIER.value: Screens.CASHIER_SCREEN.value,
+            Roles.TECHNICIAN.value: Screens.TECHNICIAN_SCREEN.value,
+            Roles.STORAGER.value: Screens.STORAGER_SCREEN.value
+        }
+
+        role = account_manager.login_account(self.login_input.text(), self.password_input.text())
+
+        if role in role_to_screen:
+            screen_index = role_to_screen[role]
+            target_screen = self.stack_widget.widget(screen_index)
+
+            if hasattr(target_screen, "on_show"):
+                target_screen.on_show()
+            self.stack_widget.setCurrentIndex(screen_index)
+        else:
+            pass
+
+    def check_errors(self):
+        login_fields = [self.login_input, self.password_input]
+        has_error = False
+
+        for field in login_fields:
+            if not field.text().strip():
+                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
+                has_error = True
+            else:
+                # сбрасываем стиль, если поле заполнено
+                field.setStyleSheet("")
+
+        if has_error:
+            self.error_label.setText("Все поля должны быть заполнены!")
+            return True  # можно возвращать True, чтобы показать, что ошибка есть
+
+        self.error_label.setText("")  # убираем ошибку, если всё ок
+        return False

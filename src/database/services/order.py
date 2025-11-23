@@ -7,7 +7,7 @@ from src.database.services.service import ServiceManager
 from src.database.services.account import AccountManager
 from src.database.services.client import ClientManager
 
-now_date: str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
 class OrderManager:
     def __init__(self, supabase: Client):
@@ -44,7 +44,9 @@ class OrderManager:
         try:
             self.supabase.table("orders").insert({"client_id": client_id, "service_id": service_id, "trouble_description": trouble_description, "accept_date": accept_time}).execute()
             logger.info(f"Создан заказ! Имя клиента {client_info[0]}, Номер телефона: {client_info[1]}, Название услуги: {service_name}, Описание проблемы: {trouble_description}")
-        except APIError:
+        except APIError as e:
+            msg = str(e)
+            logger.error(f"!!!THIS IS ERROR!!! -> {msg}")
             return False
         return True
 
@@ -159,3 +161,6 @@ class OrderManager:
             else:
                 logger.error(msg)
                 return False
+
+if __name__ == "__main__":
+    pass
