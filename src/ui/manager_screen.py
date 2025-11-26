@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout, QPushButton, QTableWidget
+from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout, QPushButton
 from src.ui import Screens, CardWidget
 
 class ManagerScreen(QWidget):

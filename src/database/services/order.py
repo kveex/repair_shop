@@ -1,7 +1,7 @@
 from supabase import Client
 from postgrest import APIError
 from datetime import datetime
-from src.logger_config import logger
+from logger_config import logger
 
 from src.database.services.service import ServiceManager
 from src.database.services.account import AccountManager

@@ -1,4 +1,4 @@
-from src.database.services.service import *
+from src.database import *
 from src.database import service_manager
 import pytest
 

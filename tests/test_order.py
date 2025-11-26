@@ -1,6 +1,6 @@
 import pytest
 from src.database import _supabase, order_manager, client_manager
-from src.database.services.service import ServiceNotExists
+from src.database import ServiceNotExists
 
 
 #make_order

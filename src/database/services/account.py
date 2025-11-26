@@ -1,9 +1,7 @@
-import hashlib
-
 import bcrypt
 from postgrest import APIResponse, APIError
 from supabase import Client
-from src.logger_config import logger
+from logger_config import logger
 class LoginMatchError(Exception): pass
 class AccountNotExistsError(Exception): pass
 

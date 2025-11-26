@@ -1,6 +1,6 @@
 from supabase import Client
 from postgrest import APIError
-from src.logger_config import logger
+from logger_config import logger
 
 class ClientNotExistsError(Exception): pass
 class ClientExistsError(Exception): pass

@@ -1,11 +1,12 @@
-from PySide6.QtWidgets import QApplication, QStackedWidget, QMainWindow
-from screens.login_screen import LoginScreen
-from screens.test_screen import TestScreen
-from screens.register_screen import RegisterScreen
-from screens.cashier_screen import CashierScreen
-from screens.manager_screen import ManagerScreen
-from screens.storager_screen import StoragerScreen
-from screens.tecnitian_screen import TechnicianScreen
+from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+
+from src.ui.cashier_screen import CashierScreen
+from src.ui.login_screen import LoginScreen
+from src.ui.manager_screen import ManagerScreen
+from src.ui.register_screen import RegisterScreen
+from src.ui.storager_screen import StoragerScreen
+from src.ui.tecnitian_screen import TechnicianScreen
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -16,7 +17,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
 
         login_screen = LoginScreen(self.stack)
-        test_screen = TestScreen(self.stack)
         manager_screen = ManagerScreen(self.stack)
         technician_screen = TechnicianScreen(self.stack)
         storager_screen = StoragerScreen(self.stack)
@@ -24,7 +24,6 @@ class MainWindow(QMainWindow):
         register_screen = RegisterScreen(self.stack)
 
         self.stack.addWidget(login_screen)
-        self.stack.addWidget(test_screen)
         self.stack.addWidget(manager_screen)
         self.stack.addWidget(cashier_screen)
         self.stack.addWidget(technician_screen)
@@ -33,8 +32,25 @@ class MainWindow(QMainWindow):
 
         self.stack.setCurrentIndex(0)
 
+        self.stack.currentChanged.connect(self.on_widget_change)
+
+    def on_widget_change(self):
+        index = self.stack.currentIndex()
+
+        screen_to_name = {
+            0: "Сервис ремонта - вход",
+            1: "Панель управления менеджера",
+            2: "Список заказов",
+            3: "Выбор заказов",
+        }
+
+        if index in screen_to_name:
+            self.setWindowTitle(screen_to_name[index])
+
+
 if __name__ == "__main__":
     import sys
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
