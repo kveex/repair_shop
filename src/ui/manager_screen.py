@@ -1,13 +1,11 @@
 from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout, QPushButton
-from src.ui import Screens, CardWidget
+from src.ui import Screens
 
 class ManagerScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
         super().__init__()
         self.stack_widget = stack_widget
         self.layout = QVBoxLayout()
-
-        self.card_widget = CardWidget(("Иванов Иван Иванович", "Диагностика", 600), [])
 
         self.label = QLabel("Менеджер")
 
@@ -16,7 +14,6 @@ class ManagerScreen(QWidget):
 
         self.button.clicked.connect(self.open_register_screen)
 
-        self.layout.addWidget(self.card_widget)
         self.layout.addWidget(self.label)
         self.layout.addWidget(self.button)
 

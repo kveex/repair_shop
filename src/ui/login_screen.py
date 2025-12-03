@@ -3,9 +3,10 @@ from PySide6.QtWidgets import (
     QPushButton, QStackedWidget, QSpacerItem,
     QSizePolicy, QLabel
 )
+from PySide6.QtCore import Qt
 
 from src.database import account_manager
-from src.ui import Screens, Roles
+from src.ui import Screens, Roles, check_errors
 
 
 class LoginScreen(QWidget):
@@ -15,7 +16,8 @@ class LoginScreen(QWidget):
         self.setWindowTitle("Вход")
         layout = QVBoxLayout()
 
-        self.error_label = QLabel()
+        self.error_label = QLabel("Все поля должны быть заполнены!")
+        self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.error_label.hide()
 
         self.login_input = QLineEdit()
@@ -37,7 +39,7 @@ class LoginScreen(QWidget):
         self.setLayout(layout)
 
     def login(self):
-        self.check_errors()
+        check_errors([self.login_input, self.password_input], self.error_label)
         debug: bool = True
         role_to_screen = {
             Roles.MANAGER.value: Screens.MANAGER_SCREEN.value,
@@ -66,21 +68,3 @@ class LoginScreen(QWidget):
             if hasattr(target_screen, "on_show"):
                 target_screen.on_show()
             self.stack_widget.setCurrentIndex(screen_index)
-
-    def check_errors(self):
-        login_fields = [self.login_input, self.password_input]
-        has_error = False
-
-        for field in login_fields:
-            if not field.text().strip():
-                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
-                has_error = True
-            else:
-                field.setStyleSheet("")
-
-        if has_error:
-            self.error_label.setText("Все поля должны быть заполнены!")
-            return True
-
-        self.error_label.setText("")
-        return False

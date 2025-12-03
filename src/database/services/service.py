@@ -2,7 +2,7 @@ from supabase import Client
 from postgrest import APIError
 from logger_config import logger
 
-class ServiceNotExists(Exception): pass
+class ServiceNotExistsError(Exception): pass
 class ServiceExistsError(Exception): pass
 
 class ServiceManager:
@@ -28,7 +28,7 @@ class ServiceManager:
         response = self.supabase.table("services").select("*").eq("id", service_id).execute().data
 
         if not response:
-            raise ServiceNotExists(f"Услуга с ID {service_id} не найдена")
+            raise ServiceNotExistsError(f"Услуга с ID {service_id} не найдена")
         else:
             name: str = response[0]["name"]
 
@@ -37,7 +37,7 @@ class ServiceManager:
 
             return True
 
-    def get_all_services(self) -> list:
+    def get_all_services(self) -> list[list[str]]:
         services: list = self.supabase.table("services").select("*").execute().data
         result: list = []
 
@@ -78,7 +78,7 @@ class ServiceManager:
 
 def _give_service(service_info: list) -> tuple[str, str, int, int]:
     if not service_info:
-        raise ServiceNotExists("Услига не существует")
+        raise ServiceNotExistsError("Услига не существует")
 
     s_id: int = service_info[0]["id"]
     name: str = service_info[0]["name"]

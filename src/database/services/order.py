@@ -1,11 +1,10 @@
 from supabase import Client
-from postgrest import APIError
 from datetime import datetime
 from logger_config import logger
 
-from src.database.services.service import ServiceManager
+from src.database.services.service import ServiceManager, ServiceNotExistsError
 from src.database.services.account import AccountManager
-from src.database.services.client import ClientManager
+from src.database.services.client import ClientManager, ClientNotExistsError
 
 now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
@@ -30,10 +29,10 @@ class OrderManager:
 
     def make_order(self, client_phone: str, service_name: str, trouble_description: str) -> bool:
         client_info: tuple[str, str, str, int] = self.client_manager.get_client(client_phone)
-        if client_info is None: raise ValueError("Такого клиента не существует")
+        if client_info is None: raise ClientNotExistsError("Такого клиента не существует")
 
         service_info: tuple[str, str, int | None, int] = self.service_manager.get_service_by_name(service_name)
-        if service_info is None: raise ValueError("Такого сервиса не существует")
+        if service_info is None: raise ServiceNotExistsError("Такого сервиса не существует")
 
         client_id = client_info[3]
         service_id = service_info[3]
@@ -44,7 +43,7 @@ class OrderManager:
         try:
             self.supabase.table("orders").insert({"client_id": client_id, "service_id": service_id, "trouble_description": trouble_description, "accept_date": accept_time}).execute()
             logger.info(f"Создан заказ! Имя клиента {client_info[0]}, Номер телефона: {client_info[1]}, Название услуги: {service_name}, Описание проблемы: {trouble_description}")
-        except APIError as e:
+        except Exception as e:
             msg = str(e)
             logger.error(f"!!!THIS IS ERROR!!! -> {msg}")
             return False
@@ -140,21 +139,24 @@ class OrderManager:
 
     def select_order(self, order_id: int, worker_id: int) -> bool:
         try:
-            self.supabase.table("orders").update({"worker_id": worker_id, "status": "В работе"}).eq("id", order_id).execute()
+            order = self.supabase.table("orders").update({"worker_id": worker_id, "status": "В работе"}).eq("id", order_id).execute()
+            logger.info(order)
+            if not order:
+                raise ValueError(f"Заказ с ID = {order_id} не был найден")
             return True
-        except APIError as e:
+        except Exception as e:
             msg = str(e)
-            if "invalid input" in msg:
-                raise ValueError(f"Заказ не назначен, так как введено что-то что не является ID заказа или ID работника")
+            if "orders_worker_id_fkey" in msg:
+                raise ValueError(f"Работник с ID = {worker_id} не был найден")
             else:
                 logger.error(msg)
-                return False
+        return False
 
     def finish_order(self, order_id: int) -> bool:
         try:
             self.supabase.table("orders").update({"status": "Завершен", "finish_date": now_date}).eq("id", order_id).execute()
             return True
-        except APIError as e:
+        except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
                 raise ValueError(f"Заказ не завершен, так как введено что-то что не является ID заказа")
@@ -162,5 +164,7 @@ class OrderManager:
                 logger.error(msg)
                 return False
 
+
+# TODO: попробовать сделать вместо того, чтоыбы передовались числа или string классы order в которых можно будет сделать проверки типа equal is_taken и брать значения отдельно
 if __name__ == "__main__":
     pass

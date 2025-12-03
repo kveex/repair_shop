@@ -1,7 +1,8 @@
 from enum import Enum
-from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QVBoxLayout, QScrollArea, QDialog
+from typing import Callable
+
+from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QVBoxLayout, QScrollArea, QDialog, QLineEdit
 from PySide6.QtCore import Qt
-from logger_config import logger
 
 class Screens(Enum):
     LOGIN_SCREEN = 0
@@ -17,8 +18,8 @@ class Roles(Enum):
     TECHNICIAN = "Техник"
     STORAGER = "Работник склада"
 
-class CardWidget(QPushButton):
-    def __init__(self, start_info: tuple[str, str, int], full_info: list[str]):
+class _CardWidget(QPushButton):
+    def __init__(self, name_index: int, desc_index: int, help_index: int, full_info: list[str]):
         super().__init__()
 
         self.info = full_info
@@ -38,9 +39,9 @@ class CardWidget(QPushButton):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
 
-        client_name = QLabel(start_info[0])
-        service_name = QLabel(start_info[1])
-        price = QLabel(f"{start_info[2]}, ₽")
+        client_name = QLabel(full_info[name_index])
+        service_name = QLabel(full_info[desc_index])
+        price = QLabel(f"{full_info[help_index]}, ₽")
 
         layout.addWidget(client_name, 0, 0)
         layout.addWidget(service_name, 1, 0)
@@ -52,63 +53,76 @@ class CardWidget(QPushButton):
         self.setMaximumHeight(70)
         self.setMinimumHeight(50)
 
-        self.clicked.connect(self.on_press)
-
-    def on_press(self):
-        self.info_dialog.setWindowTitle("Full Info")
-        i = 0
-        names = [
-            "Фио клиента: ",
-            "Номер клиента: ",
-            "Адрес клиента: ",
-            "Услуга: ",
-            "Описание услуги: ",
-            "Цена: ",
-            "Назначенный техник: ",
-            "Описание проблемы: ",
-            "Статус: ",
-            "Время принятия: ",
-            "Время завершения: "
-        ]
-
-        layout = QVBoxLayout()
-
-        for text in self.info:
-            label = QLabel(names[i] + str(text))
-            layout.addWidget(label)
-            i += 1
-
-        self.info_dialog.setLayout(layout)
-        self.info_dialog.open()
 
 class CardListWidget(QWidget):
-    def __init__(self, info: list, name_id: int, description_id: int, result_id: int):
+    def __init__(self):
         super().__init__()
 
         main_layout = QVBoxLayout(self)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.container = QWidget()
         self.layout = QVBoxLayout(self.container)
         self.layout.setSpacing(10)
         self.layout.setContentsMargins(10, 10, 10, 10)
 
-        scroll.setWidget(self.container)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Поиск")
+        self.search.textChanged.connect(self.search_card)
 
-        main_layout.addWidget(scroll)
+        self.scroll.setWidget(self.container)
+
+        main_layout.addWidget(self.search)
+        main_layout.addWidget(self.scroll)
 
         self.setLayout(main_layout)
-        self.fill_list(info, name_id, description_id, result_id)
 
-    def add_item(self):
-        pass
+    def search_card(self, _=None):
+        q = self.search.text().strip().lower()
+        cards = self.scroll.findChildren(_CardWidget, "cardWidget", Qt.FindChildOption.FindChildrenRecursively)
+        if not cards:
+            return
 
-    def fill_list(self, info: list, name_id: int, description_id: int, result_id: int):
+        if q == "":
+            for card in cards:
+                card.show()
+            return
 
-        for inf in info:
-            card = CardWidget((inf[name_id], inf[description_id], inf[result_id]), info)
+        for card in cards:
+            info_list = card.info
+            visible = any(q in str(field).lower() for field in info_list)
+            card.setVisible(visible)
+
+    def create_cards(self, name_index: int, desc_index: int, help_index: int, info_list: list[list[str]], func: Callable):
+        count = 0
+        for _ in info_list:
+            card = _CardWidget(name_index, desc_index, help_index, info_list[count])
+            card.clicked.connect(func)
             self.layout.addWidget(card)
+            count += 1
 
+def check_errors(fields: list[QLineEdit], error_label: QLabel):
+    has_error = False
+
+    # if not error_label.isHidden():
+    #     raise ValueError("Error label needs to be hidden first!")
+
+    for field in fields:
+        if hasattr(field, "toPlainText"):
+            if not field.toPlainText().strip():
+                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
+                has_error = True
+
+        elif not field.text().strip():
+            field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
+            has_error = True
+        else:
+            field.setStyleSheet("")
+
+    if has_error:
+        error_label.setText("Все поля должны быть заполнены!")
+        error_label.show()
+        return

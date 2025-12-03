@@ -1,12 +1,14 @@
 import pytest
 from src.database import _supabase, order_manager, client_manager
-from src.database import ServiceNotExists
+from src.database import ServiceNotExistsError
 
 
 #make_order
 #make_order_new_client
 #get_all_orders
 #get_order
+#!finish_order
+#select_order
 
 def test_make_order_existing_client():
     assert order_manager.make_order("+79997654321", "Замена", "Тестовый заказ")
@@ -25,7 +27,7 @@ def test_make_order_existing_client_no_service():
         order_manager.make_order("+79997654321", "", "Тестовый заказ")
 
 def test_make_order_existing_client_wrong_service():
-    with pytest.raises(ServiceNotExists):
+    with pytest.raises(ServiceNotExistsError):
         order_manager.make_order("+79997654321", "арывлаорфл", "Тестовый заказ")
     
 def test_make_order_new_client():
@@ -58,3 +60,23 @@ def test_get_order():
 def test_get_order_no_phone():
     with pytest.raises(ValueError):
         order_manager.get_order("")
+
+def test_select_order():
+    order = order_manager.select_order(9, 187)
+    assert order
+
+def test_select_order_not_existing_order():
+    with pytest.raises(ValueError):
+        order_manager.select_order(-1, 187)
+
+def test_select_order_not_existing_worker():
+    with pytest.raises(ValueError):
+        order_manager.select_order(9, -1)
+
+def test_finish_order():
+    order = order_manager.finish_order(9)
+    assert order
+
+def test_finish_order_not_existing_order():
+    with pytest.raises(ValueError):
+        order_manager.finish_order(-1)

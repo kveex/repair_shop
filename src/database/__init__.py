@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from src.database.services.account import AccountManager, LoginMatchError, AccountNotExistsError
 from src.database.services.order import OrderManager
 from src.database.services.client import ClientManager, ClientExistsError, ClientNotExistsError
-from src.database.services.service import ServiceManager, ServiceExistsError, ServiceNotExists
+from src.database.services.service import ServiceManager, ServiceExistsError, ServiceNotExistsError
 
 load_dotenv()
 
