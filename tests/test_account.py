@@ -1,71 +1,185 @@
-from src.database import account_manager, LoginMatchError, AccountNotExistsError
-from pytest import raises
+from unittest.mock import MagicMock
 
-#login_account
-#register_account
-#change_role
-#get_all_accounts
-#delete_account
+import bcrypt
+import pytest
+from src.database.services.worker import (WorkerManager, Worker, WorkerNotExistsError,
+                                          WrongCredentialsError, LoginMatchError)
+from tests.conftest import chain_factory
 
-account_id = 0
+class TestLoginWorker:
+    def test_login_success(self, chain_factory):
+        password = "pass123"
+        hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-def test_login_existing_account():
-    assert account_manager.login_account("manager1", "pass123")
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "dev", "id": 43, "password": hashed_password}]
+        )
 
-def test_login_nonexistent_account():
-    assert not account_manager.login_account("nonexistent", "password")
+        mgr = WorkerManager(client)
+        account = mgr.login_worker("Bob123", "pass123")
 
-def test_login_account_no_password():
-    assert not account_manager.login_account("admin", "")
+        assert account == Worker("Bob", "dev", 43)
 
-def test_login_account_no_login():
-    assert not account_manager.login_account("", "password")
+    def test_login_wrong_password(self, chain_factory):
+        password = "pass456"
+        hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-def test_register_account():
-    global account_id
-    account_id = account_manager.register_account("test_name", "test_login", "test_password")
-    assert account_id
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "dev", "id": 42, "password": hashed_password}]
+        )
 
-def test_register_account_empty_fields():
-    with raises(ValueError):
-        account_manager.register_account("", "", "")
+        mgr = WorkerManager(client)
+        with pytest.raises(WrongCredentialsError):
+            mgr.login_worker("Bob123", "pass123")
 
-def test_register_account_matching_login():
-    with raises(LoginMatchError):
-        account_manager.register_account("test_name", "manager1", "test_password")
+    def test_login_wrong_login(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
 
-def test_change_role():
-    assert account_manager.change_role(account_id, "Менеджер")
+        mgr = WorkerManager(client)
 
-def test_get_account():
-    account = account_manager.get_account(account_id)
-    assert account
-    assert isinstance(account, tuple)
-    assert isinstance(account[0], str)
-    assert isinstance(account[1], str)
-    assert isinstance(account[2], int)
+        with pytest.raises(WrongCredentialsError):
+            mgr.login_worker("Bob123", "pass123")
 
-def test_get_account_nonexistent():
-    with raises(AccountNotExistsError):
-        account_manager.get_account(0)
+class TestRegisterWorker:
+    def test_register_success(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "Не назначена", "id": 43}]
+        )
 
-def test_get_account_no_id():
-    with raises(ValueError):
-        account_manager.get_account(None)
+        mgr = WorkerManager(client)
+        account = mgr.register_worker("Bob", "Bob123", "pass123")
 
-def test_delete_account():
-    assert account_manager.delete_account(account_id)
+        assert account == Worker("Bob", "Не назначена", 43)
 
-def test_delete_account_nonexistent():
-    with raises(AccountNotExistsError):
-        account_manager.delete_account(account_id)
+    def test_register_no_name(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
 
-def test_delete_account_no_id():
-    with raises(ValueError):
-        account_manager.delete_account(None)
+        mgr = WorkerManager(client)
+        with pytest.raises(ValueError):
+            mgr.register_worker("", "Bob123", "pass123")
 
-def test_get_all_accounts():
-    accounts = account_manager.get_all_accounts()
-    assert len(accounts) > 0
-    assert isinstance(accounts, list)
-    assert isinstance(accounts[0], tuple)
+    def test_register_matching_login(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("unique"))
+
+        mgr = WorkerManager(client)
+        with pytest.raises(LoginMatchError):
+            mgr.register_worker("Bob", "Bob123", "pass123")
+
+    def test_register_unknown_error(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("some error"))
+
+        mgr = WorkerManager(client)
+        account = mgr.register_worker("Bob", "Bob123", "pass123")
+        assert account is None
+
+class TestChangeRole:
+    def test_change_role_success(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "notDev", "id": 43}]
+        )
+
+        mgr = WorkerManager(client)
+        assert mgr.change_role(43, "notDev")
+
+    def test_change_role_account_not_found(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
+
+        mgr = WorkerManager(client)
+        with pytest.raises(WorkerNotExistsError):
+            mgr.change_role(43, "notDev")
+
+    def test_change_role_invalid_input(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("invalid input"))
+
+        mgr = WorkerManager(client)
+        with pytest.raises(ValueError):
+            mgr.change_role(43, "notDev")
+
+class TestGetAllWorkers:
+    def test_get_all_accounts_success(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "dev", "id": 43}, {"name": "Peter", "job": "notDev", "id": 44}]
+        )
+
+        mgr = WorkerManager(client)
+        accounts = mgr.get_all_workers()
+        assert accounts == [Worker("Bob", "dev", 43), Worker("Peter", "notDev", 44)]
+
+    def test_get_all_accounts_not_found(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
+
+        mgr = WorkerManager(client)
+        with pytest.raises(WorkerNotExistsError):
+            mgr.get_all_workers()
+
+class TestGetWorker:
+    def test_get_worker_success(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(
+            [{"name": "Bob", "job": "dev", "id": 42}]
+        )
+
+        mgr = WorkerManager(client)
+        account = mgr.get_worker(42)
+
+        assert account == Worker("Bob", "dev", 42)
+
+    def test_get_worker_not_found(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
+        mgr = WorkerManager(client)
+
+        with pytest.raises(WorkerNotExistsError):
+            mgr.get_worker(42)
+
+    def test_get_worker_invalid_input(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("invalid input"))
+        mgr = WorkerManager(client)
+
+        with pytest.raises(ValueError):
+            mgr.get_worker(1)
+
+    def test_get_worker_unknown_error(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("some error"))
+        mgr = WorkerManager(client)
+
+        account = mgr.get_worker(42)
+        assert account is None
+
+class TestDeleteWorker:
+    def test_delete_account_success(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([{"id": 43}])
+
+        mgr = WorkerManager(client)
+        assert mgr.delete_worker(43)
+
+    def test_delete_worker_not_found(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory([])
+
+        mgr = WorkerManager(client)
+        with pytest.raises(WorkerNotExistsError):
+            mgr.delete_worker(43)
+
+    def test_delete_worker_invalid_input(self, chain_factory):
+        client = MagicMock()
+        client.table.return_value = chain_factory(exc=Exception("invalid input"))
+
+        mgr = WorkerManager(client)
+        with pytest.raises(ValueError):
+            mgr.delete_worker(43)

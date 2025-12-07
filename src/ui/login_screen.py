@@ -59,7 +59,9 @@ class LoginScreen(QWidget):
             self.setWindowTitle(target_screen.windowTitle())
             return
 
-        role = account_manager.login_account(self.login_input.text(), self.password_input.text())
+        account = account_manager.login_worker(self.login_input.text(), self.password_input.text())
+
+        role: str = account.role
 
         if role in role_to_screen:
             screen_index = role_to_screen[role]

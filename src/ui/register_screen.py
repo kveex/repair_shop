@@ -86,7 +86,7 @@ class RegisterScreen(QWidget):
             return
 
         # ✅ Если всё ок — пробуем создать аккаунт
-        account_manager.register_account(
+        account_manager.register_worker(
             self.name_input.text(),
             self.login_input.text(),
             self.password_input.text()

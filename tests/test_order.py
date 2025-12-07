@@ -1,82 +1,89 @@
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 import pytest
-from src.database import _supabase, order_manager, client_manager
-from src.database import ServiceNotExistsError
 
+from src.database.services.order import (Order, OrderManager, Client,
+                                         ClientManager, Service, ClientNotExistsError,
+                                         ServiceNotExistsError, Worker)
+from tests.conftest import chain_factory
 
-#make_order
-#make_order_new_client
-#get_all_orders
-#get_order
-#!finish_order
-#select_order
+class TestMakeOrderNewClient:
+    def test_make_order_new_client_success(self, chain_factory):
+        client_obj = Client(name="Bob", phone="+79993456789", address="Home", id=12)
+        client_manager = MagicMock()
+        client_manager.add_client.return_value = client_obj
 
-def test_make_order_existing_client():
-    assert order_manager.make_order("+79997654321", "Замена", "Тестовый заказ")
-    _supabase.table("orders").delete().eq("trouble_description", "Тестовый заказ").execute()
+        om = object.__new__(OrderManager)
+        om.client_manager = client_manager
+        om.make_order = MagicMock(return_value=True)
+        om.supabase = MagicMock()
 
-def test_make_order_existing_client_wrong_phone():
-    with pytest.raises(ValueError):
-        order_manager.make_order("+79999999999", "Замена", "Тестовый заказ")
+        service = Service(name="Test", description="Test", price=100, id=12)
 
-def test_make_order_existing_client_no_phone():
-    with pytest.raises(ValueError):
-        order_manager.make_order("", "Замена", "Тестовый заказ")
+        client_returned, ok = om.make_order_new_client(
+            client_name=client_obj.name,
+            client_phone=client_obj.phone,
+            client_address=client_obj.address,
+            service=service,
+            trouble_description="Meh"
+        )
 
-def test_make_order_existing_client_no_service():
-    with pytest.raises(ValueError):
-        order_manager.make_order("+79997654321", "", "Тестовый заказ")
+        assert ok is True
+        assert client_returned == client_obj
 
-def test_make_order_existing_client_wrong_service():
-    with pytest.raises(ServiceNotExistsError):
-        order_manager.make_order("+79997654321", "арывлаорфл", "Тестовый заказ")
-    
-def test_make_order_new_client():
-    order = order_manager.make_order_new_client("test_name", "+78005553535", "test_address", "Замена", "Тестовый заказ")
-    assert order[1]
-    client_manager.delete_client(order[0])
+        om.supabase.table.assert_not_called()
 
-def test_make_order_new_client_no_phone():
-    with pytest.raises(ValueError):
-        order_manager.make_order_new_client("test_name", "", "test_address", "Замена", "Тестовый заказ")
+    def test_make_order_new_client_order_failed_deletes_client(self, chain_factory):
+        client_obj = Client(name="Bob", phone="+79993456789", address="Home", id=12)
+        client_manager = MagicMock()
+        client_manager.add_client.return_value = client_obj
 
-def test_make_order_new_client_no_name():
-    with pytest.raises(ValueError):
-        order_manager.make_order_new_client("", "+78005553536", "test_address", "Замена", "Тестовый заказ")
+        om = object.__new__(OrderManager)
+        om.client_manager = client_manager
+        om.make_order = MagicMock(return_value=False)
 
-def test_make_order_new_client_no_service():
-    with pytest.raises(ValueError):
-        order_manager.make_order_new_client("test_name", "+78005553536", "test_address15", "", "Тестовый заказ")
-        # supabase.table("clients").delete().eq("phone", "+78005553536")
-        
-def test_get_all_orders():
-    assert order_manager.get_all_orders()
+        # Подготовим supabase mock, который вернёт chain для delete().eq().execute()
+        supabase = MagicMock()
+        supabase.table.return_value = chain_factory([])  # ответ delete.execute() — не важен
+        om.supabase = supabase
 
-def test_get_order():
-    order = order_manager.get_order("+79993336545")
-    assert order
-    assert isinstance(order, list)
-    assert isinstance(order[0], tuple)
+        service = Service(name="Test", description="Test", price=100, id=12)
 
-def test_get_order_no_phone():
-    with pytest.raises(ValueError):
-        order_manager.get_order("")
+        client_returned, ok = om.make_order_new_client(
+            client_name=client_obj.name,
+            client_phone=client_obj.phone,
+            client_address=client_obj.address,
+            service=service,
+            trouble_description="Meh"
+        )
 
-def test_select_order():
-    order = order_manager.select_order(9, 187)
-    assert order
+        assert ok is False
+        assert client_returned is None
 
-def test_select_order_not_existing_order():
-    with pytest.raises(ValueError):
-        order_manager.select_order(-1, 187)
+        # Проверяем что удаление вызвано корректно по id клиента
+        supabase.table.assert_called_once_with("clients")
+        supabase.table().delete.assert_called_once()
+        supabase.table().delete().eq.assert_called_once_with("id", client_obj.id)
+        supabase.table().delete().execute.assert_called_once()
 
-def test_select_order_not_existing_worker():
-    with pytest.raises(ValueError):
-        order_manager.select_order(9, -1)
+    def test_make_order_new_client_add_client_raises_returns_none_false(self):
+        client_manager = MagicMock()
+        client_manager.add_client.side_effect = Exception("db error")
 
-def test_finish_order():
-    order = order_manager.finish_order(9)
-    assert order
+        om = object.__new__(OrderManager)
+        om.client_manager = client_manager
+        om.make_order = MagicMock()  # не должен вызываться
+        om.supabase = MagicMock()
 
-def test_finish_order_not_existing_order():
-    with pytest.raises(ValueError):
-        order_manager.finish_order(-1)
+        service = Service(name="Test", description="Test", price=100, id=12)
+
+        client_returned, ok = om.make_order_new_client(
+            client_name="X", client_phone="Y", client_address="Z",
+            service=service, trouble_description="T"
+        )
+
+        assert client_returned is None
+        assert ok is False
+        om.supabase.table.assert_not_called()
+
