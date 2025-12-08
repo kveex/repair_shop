@@ -1,6 +1,7 @@
+from dataclasses import asdict
 from enum import Enum
 from typing import Callable
-
+from src.database import Client, Order, Service, Worker
 from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QVBoxLayout, QScrollArea, QDialog, QLineEdit
 from PySide6.QtCore import Qt
 
@@ -19,7 +20,7 @@ class Roles(Enum):
     STORAGER = "Работник склада"
 
 class _CardWidget(QPushButton):
-    def __init__(self, name_index: int, desc_index: int, help_index: int, full_info: list[str]):
+    def __init__(self, name_index: str, desc_index: str, help_index: str, full_info: Client | Worker | Service | Order):
         super().__init__()
 
         self.info = full_info
@@ -39,15 +40,14 @@ class _CardWidget(QPushButton):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
 
-        client_name = QLabel(full_info[name_index])
-        service_name = QLabel(full_info[desc_index])
-        price = QLabel(f"{full_info[help_index]}, ₽")
+        client_name = QLabel(name_index)
+        service_name = QLabel(desc_index)
+        price = QLabel(help_index)
 
         layout.addWidget(client_name, 0, 0)
         layout.addWidget(service_name, 1, 0)
         layout.addWidget(price, 0, 1, Qt.AlignmentFlag.AlignRight)
         self.info_dialog = QDialog(self)
-
         self.setLayout(layout)
 
         self.setMaximumHeight(70)
@@ -93,16 +93,13 @@ class CardListWidget(QWidget):
 
         for card in cards:
             info_list = card.info
-            visible = any(q in str(field).lower() for field in info_list)
+            visible = any(q in str(field).lower() for field in asdict(info_list).items())
             card.setVisible(visible)
 
-    def create_cards(self, name_index: int, desc_index: int, help_index: int, info_list: list[list[str]], func: Callable):
-        count = 0
-        for _ in info_list:
-            card = _CardWidget(name_index, desc_index, help_index, info_list[count])
-            card.clicked.connect(func)
-            self.layout.addWidget(card)
-            count += 1
+    def create_cards(self, name_index: str, desc_index: str, help_index: str, full_card_info, func: Callable):
+        card = _CardWidget(name_index, desc_index, help_index, full_card_info)
+        card.clicked.connect(func)
+        self.layout.addWidget(card)
 
 def check_errors(fields: list[QLineEdit], error_label: QLabel):
     has_error = False

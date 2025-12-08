@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from src.database import account_manager
+from src.database import worker_manager
 from src.ui import Screens, Roles, check_errors
 
 
@@ -59,7 +59,7 @@ class LoginScreen(QWidget):
             self.setWindowTitle(target_screen.windowTitle())
             return
 
-        account = account_manager.login_worker(self.login_input.text(), self.password_input.text())
+        account = worker_manager.login_worker(self.login_input.text(), self.password_input.text())
 
         role: str = account.role
 

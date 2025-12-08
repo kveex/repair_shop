@@ -9,6 +9,16 @@ from src.database.services.client import ClientManager, ClientNotExistsError, Cl
 
 now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
+@dataclass(frozen=True, order=True)
+class Order:
+    client: Client
+    service: Service
+    worker: Worker | None
+    trouble_description: str
+    status: str
+    accept_date: str
+    finish_date: str
+
 class OrderManager:
     def __init__(self, supabase: SupabaseClient):
         self.supabase = supabase
@@ -216,14 +226,3 @@ class OrderManager:
                 logger.error(msg)
                 return False
         return True
-
-
-@dataclass(frozen=True, order=True)
-class Order:
-    client: Client
-    service: Service
-    worker: Worker | None
-    trouble_description: str
-    status: str
-    accept_date: str
-    finish_date: str

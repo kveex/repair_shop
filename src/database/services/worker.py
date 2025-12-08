@@ -7,11 +7,17 @@ class LoginMatchError(Exception): pass
 class WrongCredentialsError(Exception): pass
 class WorkerNotExistsError(Exception): pass
 
+@dataclass(frozen=True, order=True)
+class Worker:
+    name: str
+    role: str
+    id: int
+
 class WorkerManager:
     def __init__(self, client: Client):
         self.client: Client = client
 
-    def login_worker(self, login: str, password: str) -> Worker | None:
+    def login_worker(self, login: str, password: str) -> Worker:
         response: list = self.client.table("workers").select("id, name, role, password").eq("login", login).execute().data
 
         if not response:
@@ -130,8 +136,3 @@ class WorkerManager:
         return True
 
 
-@dataclass(frozen=True, order=True)
-class Worker:
-    name: str
-    role: str
-    id: int

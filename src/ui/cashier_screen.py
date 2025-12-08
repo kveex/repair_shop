@@ -1,9 +1,11 @@
+from dataclasses import asdict
+import json
 from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QLineEdit, \
     QTextEdit, QDialog
 from src.ui import CardListWidget
 from PySide6.QtCore import Qt
 
-from src.database import order_manager, service_manager
+from src.database import order_manager, service_manager, Order, Service
 from src.database.services.client import ClientNotExistsError
 from src.ui import check_errors
 
@@ -53,7 +55,7 @@ class CashierScreen(QWidget):
 
         layout = QVBoxLayout()
 
-        flat_info = [item for sub in self.info for item in sub]
+        flat_info = [item for sub in self.info for item in asdict(sub).items()]
 
         for name, value in zip(self.names, flat_info):
             label = QLabel(f"{name}{value}")
@@ -63,41 +65,54 @@ class CashierScreen(QWidget):
         self.info_dialog.setLayout(layout)
         self.info_dialog.open()
 
-    def on_show(self):
-        self.info: list[list[str]] = order_manager.get_all_orders()
-        self.card_list.create_cards(0, 3, 5, self.info, self.on_card_press)
+    def ocp(self, order: Order):
+        self.info_dialog = _FullOrderInfo(order)
+        self.info_dialog.open()
 
+    def on_show(self):
+        self.info: list[Order] = order_manager.get_all_orders()
+        for order in self.info:
+            # self.card_list.create_cards(order.client.name, order.service.name, str(order.service.price), order, self.on_card_press)
+            self.card_list.create_cards(order.client.name, order.service.name, str(order.service.price), order,
+                                        lambda: self.ocp(order))
 class _FullOrderInfo(QDialog):
-    def __init__(self, info: list[list[str]]):
+    def __init__(self, order: Order):
         super().__init__()
 
-        names = [
-            "Фио клиента: ",
-            "Номер клиента: ",
-            "Адрес клиента: ",
-            "Услуга: ",
-            "Описание услуги: ",
-            "Цена: ",
-            "Назначенный техник: ",
-            "Описание проблемы: ",
-            "Статус: ",
-            "Время принятия: ",
-            "Время завершения: "
-        ]
-
-        self.setWindowTitle("Full Info")
-        i = 0
+        self.setWindowTitle("Иформация о заказе")
 
         layout = QVBoxLayout()
 
-        for text in info:
-            label = QLabel(names[i] + str(text))
-            label.setWordWrap(True)
-            layout.addWidget(label)
-            i += 1
+        client_name_label = QLabel(f"Фио клиента: {order.client.name}")
+        client_phone_label = QLabel(f"Номер клиента: {order.client.phone}")
+        client_address = order.client.address or "не выдан"
+        client_address_label = QLabel(f"Адресс клиента: {client_address}")
+
+        service_name_label = QLabel(f"Услуга: {order.service.name}")
+        service_desc_label = QLabel(f"Описание услуги: {order.service.description}")
+        service_price = order.service.price or "нет точной, до завершения заказа"
+        service_price_label = QLabel(f"Цена услуги: {service_price}")
+        worker_name = order.worker.name if order.worker is not None else "не назначен"
+        worker_name_label = QLabel(f"Имя наначенного сотрудника: {worker_name}")
+        trouble_desc_label = QLabel(f"Описание проблемы: {order.trouble_description}")
+        status_label = QLabel(f"Статус: {order.status}")
+        accept_time_label = QLabel(f"Время принятия: {order.accept_date}")
+        finish_time_label = QLabel(f"Время завершения: {order.finish_date}")
+
+        layout.addWidget(client_name_label)
+        layout.addWidget(client_phone_label)
+        layout.addWidget(client_address_label)
+
+        layout.addWidget(service_name_label)
+        layout.addWidget(service_desc_label)
+        layout.addWidget(service_price_label)
+        layout.addWidget(worker_name_label)
+        layout.addWidget(trouble_desc_label)
+        layout.addWidget(status_label)
+        layout.addWidget(accept_time_label)
+        layout.addWidget(finish_time_label)
 
         self.setLayout(layout)
-        self.open()
 
 class NewOrderScreen(QWidget):
     def __init__(self):

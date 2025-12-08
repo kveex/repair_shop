@@ -4,6 +4,13 @@ from dataclasses import dataclass
 class ServiceNotExistsError(Exception): pass
 class ServiceExistsError(Exception): pass
 
+@dataclass(frozen=True, order=True)
+class Service:
+    name: str
+    description: str
+    price: int | None
+    id: int
+
 class ServiceManager:
     def __init__(self, supabase: SupabaseClient):
         self.supabase = supabase
@@ -77,10 +84,3 @@ class ServiceManager:
         service = Service(name=name, description=description, price=price, id=s_id)
 
         return service
-
-@dataclass(frozen=True, order=True)
-class Service:
-    name: str
-    description: str
-    price: int | None
-    id: int

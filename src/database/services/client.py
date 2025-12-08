@@ -5,6 +5,13 @@ from logger_config import logger
 class ClientNotExistsError(Exception): pass
 class ClientExistsError(Exception): pass
 
+@dataclass(frozen=True, order=True)
+class Client:
+    name: str
+    phone: str
+    id: int
+    address: str | None = None
+
 class ClientManager:
     def __init__(self, supabase: SupabaseClient):
         self.supabase = supabase
@@ -83,11 +90,3 @@ class ClientManager:
         logger.info(f"ID: {c_id} | Имя: {name} | Телефон: {phone} | Адрес: {address}")
 
         return Client(name=name, phone=phone, id=c_id, address=address)
-
-
-@dataclass(frozen=True, order=True)
-class Client:
-    name: str
-    phone: str
-    id: int
-    address: str | None = None

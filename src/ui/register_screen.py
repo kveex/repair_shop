@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QSizePolicy
 )
 from PySide6.QtCore import Qt
-from src.database import account_manager
+from src.database import worker_manager
 from src.ui import Screens
 
 class RegisterScreen(QWidget):
@@ -86,7 +86,7 @@ class RegisterScreen(QWidget):
             return
 
         # ✅ Если всё ок — пробуем создать аккаунт
-        account_manager.register_worker(
+        worker_manager.register_worker(
             self.name_input.text(),
             self.login_input.text(),
             self.password_input.text()
