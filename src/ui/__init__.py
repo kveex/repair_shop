@@ -1,9 +1,13 @@
 from dataclasses import asdict
 from enum import Enum
 from typing import Callable
-from src.database import Client, Order, Service, Worker
-from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QVBoxLayout, QScrollArea, QDialog, QLineEdit
+from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QVBoxLayout, QScrollArea, QLineEdit
 from PySide6.QtCore import Qt
+
+from src.database.services.order import Order
+from src.database.services.service import Service
+from src.database.services.worker import Worker
+from src.database.services.client import Client
 
 class Screens(Enum):
     LOGIN_SCREEN = 0
@@ -20,7 +24,7 @@ class Roles(Enum):
     STORAGER = "Работник склада"
 
 class _CardWidget(QPushButton):
-    def __init__(self, name_index: str, desc_index: str, help_index: str, full_info: Client | Worker | Service | Order):
+    def __init__(self, name: str, desc: str, full_info: Client | Worker | Service | Order, help: str | None = None, help_desc: str | None = None):
         super().__init__()
 
         self.info = full_info
@@ -40,14 +44,15 @@ class _CardWidget(QPushButton):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
 
-        client_name = QLabel(name_index)
-        service_name = QLabel(desc_index)
-        price = QLabel(help_index)
+        name_label = QLabel(name)
+        desc_label = QLabel(desc)
+        help_label = QLabel(help)
+        help_desc_label = QLabel(help_desc)
 
-        layout.addWidget(client_name, 0, 0)
-        layout.addWidget(service_name, 1, 0)
-        layout.addWidget(price, 0, 1, Qt.AlignmentFlag.AlignRight)
-        self.info_dialog = QDialog(self)
+        layout.addWidget(name_label, 0, 0)
+        layout.addWidget(desc_label, 1, 0)
+        layout.addWidget(help_label, 0, 1, Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(help_desc_label, 1, 1, Qt.AlignmentFlag.AlignRight)
         self.setLayout(layout)
 
         self.setMaximumHeight(70)
@@ -96,8 +101,8 @@ class CardListWidget(QWidget):
             visible = any(q in str(field).lower() for field in asdict(info_list).items())
             card.setVisible(visible)
 
-    def create_cards(self, name_index: str, desc_index: str, help_index: str, full_card_info, func: Callable):
-        card = _CardWidget(name_index, desc_index, help_index, full_card_info)
+    def create_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
+        card = _CardWidget(card_name, card_desc, full_card_info, card_help, card_help_desc)
         card.clicked.connect(func)
         self.layout.addWidget(card)
 
@@ -123,3 +128,26 @@ def check_errors(fields: list[QLineEdit], error_label: QLabel):
         error_label.setText("Все поля должны быть заполнены!")
         error_label.show()
         return
+
+async def check_empty_fields(fields: list[QLineEdit], error_label: QLabel):
+    has_error = False
+
+    # if not error_label.isHidden():
+    #     raise ValueError("Error label needs to be hidden first!")
+
+    for field in fields:
+        if hasattr(field, "toPlainText"):
+            if not field.toPlainText().strip():
+                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
+                has_error = True
+
+        elif not field.text().strip():
+            field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
+            has_error = True
+        else:
+            field.setStyleSheet("")
+
+    if has_error:
+        error_label.setText("Все поля должны быть заполнены!")
+        error_label.show()
+    return has_error

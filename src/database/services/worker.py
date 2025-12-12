@@ -1,11 +1,14 @@
 import bcrypt
 from dataclasses import dataclass
-from supabase import Client
 from logger_config import logger
+from supabase import AsyncClient
+from datetime import datetime
 
 class LoginMatchError(Exception): pass
 class WrongCredentialsError(Exception): pass
 class WorkerNotExistsError(Exception): pass
+
+now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
 @dataclass(frozen=True, order=True)
 class Worker:
@@ -14,16 +17,16 @@ class Worker:
     id: int
 
 class WorkerManager:
-    def __init__(self, client: Client):
-        self.client: Client = client
+    def __init__(self, supabase: AsyncClient):
+        self.supabase: AsyncClient = supabase
 
-    def login_worker(self, login: str, password: str) -> Worker:
-        response: list = self.client.table("workers").select("id, name, role, password").eq("login", login).execute().data
-
-        if not response:
+    async def login_worker(self, login: str, password: str) -> Worker:
+        response = await self.supabase.table("workers").select("id, name, role, password").eq("login", login).execute()
+        data = response.data
+        if not data:
             raise WrongCredentialsError("Неверный логин или пароль")
 
-        worker_info = response[0]
+        worker_info = data[0]
         a_id = worker_info["id"]
         name = worker_info["name"]
         role = worker_info["role"]
@@ -38,14 +41,14 @@ class WorkerManager:
 
         return worker
 
-    def register_worker(self, name: str, new_login: str, new_password: str) -> Worker | None:
+    async def register_worker(self, name: str, new_login: str, new_password: str) -> Worker | None:
         if not name or not new_login or not new_password:
             raise ValueError("Все поля должны быть заполнены!")
 
         hashed_password: str = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
 
         try:
-            worker_info = self.client.table("workers").insert({"name": name, "login": new_login, "password": hashed_password}).execute().data[0]
+            worker_info = await self.supabase.table("workers").insert({"name": name, "login": new_login, "password": hashed_password}).execute()
         except Exception as e:
             msg = str(e)
             if "duplicate key" in msg or "unique" in msg:
@@ -53,14 +56,14 @@ class WorkerManager:
             else:
                 logger.error(msg)
                 return None
-
+        data = worker_info.data[0]
         logger.info(f"Аккаунт создан! Имя: {name}, Логин: {new_login}")
-        worker = Worker(name=name, role="Не назначена", id=worker_info["id"])
+        worker = Worker(name=name, role="Не назначена", id=data["id"])
         return worker
 
     def change_role(self, worker_id: int, new_role: str) -> bool:
         try:
-            worker_info = self.client.table("workers").update({"role": new_role}).eq("id", worker_id).execute().data
+            worker_info = self.supabase.table("workers").update({"role": new_role}).eq("id", worker_id).execute().data
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -76,7 +79,7 @@ class WorkerManager:
         return True
 
     def get_all_workers(self) -> list[Worker]:
-        workers: list = self.client.table("workers").select("*").execute().data
+        workers: list = self.supabase.table("workers").select("*").execute().data
 
         if not workers:
             raise WorkerNotExistsError("В базе данных нет аккаунтов")
@@ -97,7 +100,7 @@ class WorkerManager:
 
     def get_worker(self, worker_id: int) -> Worker | None:
         try:
-            worker_info: list = self.client.table("workers").select("*").eq("id", worker_id).execute().data
+            worker_info: list = self.supabase.table("workers").select("*").eq("id", worker_id).execute().data
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -120,7 +123,7 @@ class WorkerManager:
 
     def delete_worker(self, worker_id: int) -> bool:
         try:
-            response = self.client.table("workers").delete().eq("id", worker_id).execute().data
+            response = self.supabase.table("workers").delete().eq("id", worker_id).execute().data
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:

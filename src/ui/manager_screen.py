@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout, QPushButton
 from src.ui import Screens
+from qasync import asyncSlot
 
 class ManagerScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):

@@ -1,4 +1,7 @@
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from src.database import init_db
+import sys, asyncio
+from qasync import QEventLoop
 
 from src.ui.cashier_screen import CashierScreen
 from src.ui.login_screen import LoginScreen
@@ -12,6 +15,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Сервис ремонта — вход")
+        self.resize(800, 600)
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -47,11 +51,16 @@ class MainWindow(QMainWindow):
         if index in screen_to_name:
             self.setWindowTitle(screen_to_name[index])
 
-
 if __name__ == "__main__":
-    import sys
-
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+
+    app_close_event = asyncio.Event()
+    app.aboutToQuit.connect(app_close_event.set)
+
+    async def main():
+        asyncio.create_task(init_db())
+        await app_close_event.wait()
+
+    asyncio.run(main(), loop_factory=QEventLoop)

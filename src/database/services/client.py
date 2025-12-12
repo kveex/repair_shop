@@ -13,12 +13,12 @@ class Client:
     address: str | None = None
 
 class ClientManager:
-    def __init__(self, supabase: SupabaseClient):
+    def __init__(self, supabase):
         self.supabase = supabase
 
-    def delete_client(self, client_id: int) -> bool:
+    async def delete_client(self, client_id: int) -> bool:
         try:
-            response = self.supabase.table("clients").delete().eq("id", client_id).execute().data
+            response = await self.supabase.table("clients").delete().eq("id", client_id).execute().data
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -55,13 +55,14 @@ class ClientManager:
 
         return result
 
-    def add_client(self, name: str, phone: str, address: str = None) -> Client:
+    async def add_client(self, name: str, phone: str, address: str = None) -> Client:
         if len(phone) != 12 or phone[0:2] != "+7": raise ValueError("Номер телефона должен состоять из 11 цифр и начинаться с +7")
         if name == "": raise ValueError("Имя клиента не может быть пустым")
         if address == "": address = None
 
         try:
-            response = self.supabase.table("clients").insert({"name": name, "phone": phone, "address": address}).execute().data
+            response = await self.supabase.table("clients").insert({"name": name, "phone": phone, "address": address}).execute()
+            data = response.data
             logger.info(f"Клиент {name} успешно добавлен")
         except Exception as e:
             msg = str(e)
@@ -70,22 +71,23 @@ class ClientManager:
             else:
                 raise ValueError(f"Ошибка при добавлении клиента {name}: {msg}")
 
-        client_info = response[0]
+        client_info = data[0]
 
         return Client(name=name, phone=phone, id=client_info["id"], address=address)
 
-    def get_client(self, client_phone: str) -> Client:
+    async def get_client(self, client_phone: str) -> Client:
         if len(client_phone) != 12 or client_phone[0:2] != "+7": raise ValueError("Номер телефона должен состоять из 11 цифр и начинаться с +7")
 
-        client_info: list = self.supabase.table("clients").select("*").eq("phone", client_phone).execute().data
+        client_info = await self.supabase.table("clients").select("*").eq("phone", client_phone).execute()
+        data = client_info.data
 
-        if not client_info:
+        if not data:
             raise ClientNotExistsError(f"Клиент с номером телефона [{client_phone}] не найден")
 
-        c_id: int = client_info[0]["id"]
-        phone: str = client_info[0]["phone"]
-        name: str = client_info[0]["name"]
-        address: str = client_info[0]["address"] if not client_info[0]["address"] is None else "Не выдан"
+        c_id: int = data[0]["id"]
+        phone: str = data[0]["phone"]
+        name: str = data[0]["name"]
+        address: str = data[0]["address"] or "Не выдан"
 
         logger.info(f"ID: {c_id} | Имя: {name} | Телефон: {phone} | Адрес: {address}")
 

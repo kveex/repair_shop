@@ -1,13 +1,16 @@
-from dataclasses import asdict
-import json
 from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QLineEdit, \
-    QTextEdit, QDialog
+    QTextEdit, QDialog, QGroupBox, QListWidget, QListWidgetItem, QHBoxLayout
+
+from src.database.services.service import Service
+from src.database.services.worker import Worker
 from src.ui import CardListWidget
 from PySide6.QtCore import Qt
+from qasync import asyncSlot
 
-from src.database import order_manager, service_manager, Order, Service
+from src.database import get_order_manager, get_service_manager
+from src.database.services.order import Order
 from src.database.services.client import ClientNotExistsError
-from src.ui import check_errors
+from src.ui import check_errors, check_empty_fields
 
 class CashierScreen(QWidget):
     names = [
@@ -27,6 +30,7 @@ class CashierScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
         super().__init__()
 
+
         self.info = []
         self.stack_widget = stack_widget
 
@@ -36,7 +40,7 @@ class CashierScreen(QWidget):
 
         new_order_button = QPushButton()
         new_order_button.setText("Новый заказ")
-        new_order_button.clicked.connect(self.on_button_press)
+        new_order_button.clicked.connect(self.on_new_order_button_press)
 
         self.new_order_screen = NewOrderScreen()
         self.info_dialog = QDialog(self)
@@ -46,39 +50,36 @@ class CashierScreen(QWidget):
 
         self.setLayout(main_layout)
 
-    def on_button_press(self):
-        self.new_order_screen.on_show()
+    @asyncSlot()
+    async def on_new_order_button_press(self):
+        # await self.new_order_screen.on_show()
         self.new_order_screen.show()
 
-    def on_card_press(self):
-        self.info_dialog.setWindowTitle("Full Info")
-
-        layout = QVBoxLayout()
-
-        flat_info = [item for sub in self.info for item in asdict(sub).items()]
-
-        for name, value in zip(self.names, flat_info):
-            label = QLabel(f"{name}{value}")
-            label.setWordWrap(True)
-            layout.addWidget(label)
-
-        self.info_dialog.setLayout(layout)
+    def on_card_press(self, order: Order):
+        self.info_dialog = _FullOrderInfoOld(order)
         self.info_dialog.open()
 
-    def ocp(self, order: Order):
-        self.info_dialog = _FullOrderInfo(order)
-        self.info_dialog.open()
-
-    def on_show(self):
-        self.info: list[Order] = order_manager.get_all_orders()
+    @asyncSlot()
+    async def on_show(self, worker: Worker):
+        order_manager = get_order_manager()
+        self.info: list[Order] = await order_manager.get_all_orders()
         for order in self.info:
-            # self.card_list.create_cards(order.client.name, order.service.name, str(order.service.price), order, self.on_card_press)
-            self.card_list.create_cards(order.client.name, order.service.name, str(order.service.price), order,
-                                        lambda: self.ocp(order))
-class _FullOrderInfo(QDialog):
+            client_name = order.client.name
+            services = order.services
+            services_count = len(services)
+            service_name = services[0].name
+            service_name += f"+{services_count - 1}" if services_count > 1 else ""
+            service_price = order.full_price or "Нет точной"
+            # self.card_list.create_card(client_name, service_name, str(service_price), order,
+            #                            lambda _, o=order: self.on_card_press(o))
+            self.card_list.create_card(client_name, service_name, order,
+                                       lambda _, o=order: self.on_card_press(o),
+                                       str(service_price))
+
+class _FullOrderInfoOld(QDialog):
     def __init__(self, order: Order):
         super().__init__()
-
+        #TODO: Сделать расчёт стоимости в зависимости от добавленных услуг
         self.setWindowTitle("Иформация о заказе")
 
         layout = QVBoxLayout()
@@ -88,9 +89,9 @@ class _FullOrderInfo(QDialog):
         client_address = order.client.address or "не выдан"
         client_address_label = QLabel(f"Адресс клиента: {client_address}")
 
-        service_name_label = QLabel(f"Услуга: {order.service.name}")
-        service_desc_label = QLabel(f"Описание услуги: {order.service.description}")
-        service_price = order.service.price or "нет точной, до завершения заказа"
+        # service_name_label = QLabel(f"Услуга: {order.service.name}")
+        # service_desc_label = QLabel(f"Описание услуги: {order.service.description}")
+        service_price = order.full_price or "нет точной, до завершения заказа"
         service_price_label = QLabel(f"Цена услуги: {service_price}")
         worker_name = order.worker.name if order.worker is not None else "не назначен"
         worker_name_label = QLabel(f"Имя наначенного сотрудника: {worker_name}")
@@ -103,8 +104,8 @@ class _FullOrderInfo(QDialog):
         layout.addWidget(client_phone_label)
         layout.addWidget(client_address_label)
 
-        layout.addWidget(service_name_label)
-        layout.addWidget(service_desc_label)
+        # layout.addWidget(service_name_label)
+        # layout.addWidget(service_desc_label)
         layout.addWidget(service_price_label)
         layout.addWidget(worker_name_label)
         layout.addWidget(trouble_desc_label)
@@ -137,8 +138,6 @@ class NewOrderScreen(QWidget):
         self.client_address.setPlaceholderText("Адрес доставки клиента (не обязательно)")
         self.client_address.hide()
 
-        self.services = QComboBox()
-
         self.trouble_description = QTextEdit()
         self.trouble_description.setPlaceholderText("Описание проблемы")
 
@@ -153,31 +152,35 @@ class NewOrderScreen(QWidget):
         self.layout.addWidget(self.client_name)
         self.layout.addWidget(self.client_phone)
         self.layout.addWidget(self.client_address)
-        self.layout.addWidget(self.services)
         self.layout.addWidget(self.trouble_description)
         self.layout.addWidget(create_button)
 
         self.setLayout(self.layout)
 
-    def on_show(self):
-        services_list: list = service_manager.get_all_services()
-        for service in services_list:
-            self.services.addItem(service[0])
-
-    def create_order(self):
+    @asyncSlot()
+    async def create_order(self):
+        order_manager = get_order_manager()
         created: bool = False
 
         try:
-            check_errors([self.client_phone, self.trouble_description], self.error_label)
-            created = order_manager.make_order(self.client_phone.text(), self.services.currentText(), self.trouble_description.toPlainText())
+            # errors = await acheck_errors([self.client_phone, self.trouble_description], self.error_label)
+            # if errors:
+            #     return
+            created = await order_manager.make_order(self.client_phone.text(), self.trouble_description.toPlainText())
 
         except ClientNotExistsError:
-            self.error_label.setText("Клиент не найден, давайте добавим нвоого")
+            self.error_label.setText("Клиент не найден, давайте добавим нового")
+            self.error_label.show()
             self.client_name.show()
             self.client_address.show()
             if self.client_name.text():
-                created = order_manager.make_order_new_client(self.client_name.text(), self.client_phone.text(), self.client_address.text(), self.services.currentText(), self.trouble_description.toPlainText())[1]
+                result = await order_manager.make_order_new_client(self.client_name.text(), self.client_phone.text(), self.client_address.text(), self.trouble_description.toPlainText())
+                created = result[1]
 
+        except ValueError:
+            self.error_label.setText("Номер телефона слишком длинный или короткий!")
+            self.error_label.show()
+            return
         if created:
             self.error_label.setText("Заказ создан!")
             self.error_label.show()
