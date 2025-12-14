@@ -3,11 +3,12 @@ from datetime import datetime
 from logger_config import logger
 from dataclasses import dataclass
 
-from src.database.services.service import ServiceNotExistsError, Service
+from src.database.services.service import Service
 from src.database.services.worker import Worker
 from src.database.services.client import ClientNotExistsError, Client, ClientManager
 
 now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
 
 @dataclass(frozen=True, order=True)
 class Order:
@@ -41,16 +42,16 @@ async def _get_orders(orders: list) -> list[Order]:
         client_address: str | None = client_info.get("address", None)
         client: Client = Client(name=client_name, phone=client_phone, id=client_id, address=client_address)
 
-
-        service_info = order.get("services")
+        services_info = order.get("order_services")
         services_list: list | None = None
-        if service_info is not None:
+        if services_info is not None:
             services_list = []
-            for service in service_info:
-                service_id: int = service.get("id")
-                service_name: str = service.get("name")
-                service_desc: str = service.get("description")
-                service_price: int | None = service.get("price", None)
+            for service in services_info:
+                service_info = service.get("services")
+                service_id: int = service_info.get("id")
+                service_name: str = service_info.get("name")
+                service_desc: str = service_info.get("description")
+                service_price: int | None = service.get("price") or service_info.get("price")
                 s = Service(name=service_name, description=service_desc, price=service_price, id=service_id)
                 services_list.append(s)
 
@@ -88,16 +89,17 @@ async def _get_orders(orders: list) -> list[Order]:
 
     return result
 
+
 class OrderManager:
     def __init__(self, supabase: AsyncClient):
         self.supabase = supabase
         self.client_manager: ClientManager = ClientManager(supabase)
 
     async def make_order_new_client(self,
-                              client_name: str,
-                              client_phone: str,
-                              client_address: str | None,
-                              trouble_description: str) -> tuple[Client | None, bool]:
+                                    client_name: str,
+                                    client_phone: str,
+                                    client_address: str | None,
+                                    trouble_description: str) -> tuple[Client | None, bool]:
         try:
             client = await self.client_manager.add_client(client_name, client_phone, client_address)
             good = await self.make_order(client.phone, trouble_description)
@@ -117,7 +119,7 @@ class OrderManager:
 
         if client is None: raise ClientNotExistsError("Такого клиента не существует")
 
-        if trouble_description == "" : trouble_description = "Не описано"
+        if trouble_description == "": trouble_description = "Не описано"
 
         try:
             await self.supabase.table("orders").insert({
@@ -131,11 +133,12 @@ class OrderManager:
             logger.error(f"!!!THIS IS ERROR!!! -> {msg}")
             return False
 
-        logger.info(f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}")
+        logger.info(
+            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}")
         return True
 
     async def get_all_orders(self) -> list[Order]:
-        orders = await self.supabase.table("orders").select("*, clients(*), services(*), workers(*)").execute()
+        orders = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").execute()
 
         data = orders.data
 
@@ -145,14 +148,15 @@ class OrderManager:
         return await _get_orders(data)
 
     async def get_client_orders(self, client: Client) -> list[Order]:
-        orders = await self.supabase.table("order").select("*, clients(*), services(*), workers(*)").eq("clients.id", client.id).execute()
+        orders = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("clients.id", client.id).execute()
         data = orders.data
 
         return await _get_orders(data)
 
     async def select_order(self, order: Order, worker: Worker) -> bool:
         try:
-            order = await self.supabase.table("orders").update({"worker_id": worker.id, "status": "В работе"}).eq("id", order.id).execute()
+            order = await self.supabase.table("orders").update({"worker_id": worker.id, "status": "В работе"}).eq("id",
+                                                                                                                  order.id).execute()
         except Exception as e:
             msg = str(e)
             if "orders_worker_id_fkey" in msg:
@@ -168,7 +172,8 @@ class OrderManager:
 
     def finish_order(self, order_id: int) -> bool:
         try:
-            self.supabase.table("orders").update({"status": "Завершен", "finish_date": now_date}).eq("id", order_id).execute()
+            self.supabase.table("orders").update({"status": "Завершен", "finish_date": now_date}).eq("id",
+                                                                                                     order_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -179,11 +184,13 @@ class OrderManager:
         return True
 
     async def get_not_taken_orders(self) -> list[Order]:
-        orders = await self.supabase.table("orders").select("*, clients(*), services(*)").is_("worker_id", None).execute()
+        orders = await self.supabase.table("orders").select("*, clients(*), services(*)").is_("worker_id",
+                                                                                              None).execute()
         data = orders.data
         return await _get_orders(data)
 
     async def get_workers_orders(self, worker: Worker) -> list[Order]:
-        orders = await self.supabase.table("orders").select("*, clients(*), services(*), workers(*)").eq("worker_id", worker.id).execute()
+        orders = await self.supabase.table("orders").select("*, clients(*), services(*), workers(*)").eq("worker_id",
+                                                                                                         worker.id).execute()
         data = orders.data
         return await _get_orders(data)

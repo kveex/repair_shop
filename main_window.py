@@ -1,8 +1,10 @@
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 from src.database import init_db
-import sys, asyncio
+import sys
+import asyncio
 from qasync import QEventLoop
 
+from src.ui import GLOBAL_STYLES
 from src.ui.cashier_screen import CashierScreen
 from src.ui.login_screen import LoginScreen
 from src.ui.manager_screen import ManagerScreen
@@ -12,8 +14,9 @@ from src.ui.tecnitian_screen import TechnicianScreen
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, shutdown_event: asyncio.Event):  # Добавляем параметр
         super().__init__()
+        self.shutdown_event = shutdown_event  # Сохраняем событие
         self.setWindowTitle("Сервис ремонта — вход")
         self.resize(800, 600)
 
@@ -35,32 +38,57 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(register_screen)
 
         self.stack.setCurrentIndex(0)
-
         self.stack.currentChanged.connect(self.on_widget_change)
 
     def on_widget_change(self):
         index = self.stack.currentIndex()
-
         screen_to_name = {
             0: "Сервис ремонта - вход",
             1: "Панель управления менеджера",
             2: "Список заказов",
             3: "Выбор заказов",
         }
-
         if index in screen_to_name:
             self.setWindowTitle(screen_to_name[index])
 
-if __name__ == "__main__":
+    def closeEvent(self, event):
+        """Переопределяем закрытие окна"""
+        event.accept()  # Разрешаем закрытие
+        self.shutdown_event.set()  # Сигнализируем async_main о завершении
+
+
+def main():
+    # 1. Создаём QApplication
     app = QApplication(sys.argv)
-    window = MainWindow()
+
+    app.setStyle("Fusion")
+    app.setStyleSheet(GLOBAL_STYLES)
+
+    # 2. Создаём Qt-совместимый event loop
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    # 3. Создаём событие для сигнализации о закрытии
+    shutdown_event = asyncio.Event()
+
+    # 4. Передаём событие в MainWindow
+    window = MainWindow(shutdown_event)
     window.show()
 
-    app_close_event = asyncio.Event()
-    app.aboutToQuit.connect(app_close_event.set)
+    async def async_main():
+        # 5. Инициализируем БД
+        await init_db()
 
-    async def main():
-        asyncio.create_task(init_db())
-        await app_close_event.wait()
+        # 6. Ждём сигнала закрытия окна
+        await shutdown_event.wait()
 
-    asyncio.run(main(), loop_factory=QEventLoop)
+    # 7. Запускаем с корректной очисткой
+    try:
+        with loop:
+            loop.run_until_complete(async_main())
+    finally:
+        loop.close()
+
+
+if __name__ == "__main__":
+    main()

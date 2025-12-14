@@ -1,5 +1,6 @@
+from PySide6.QtGui import QTextOption
 from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QPushButton, QLabel, QComboBox, QLineEdit, \
-    QTextEdit, QDialog, QGroupBox, QListWidget, QListWidgetItem, QHBoxLayout
+    QTextEdit, QDialog, QGroupBox, QListWidget, QListWidgetItem, QHBoxLayout, QGridLayout
 
 from src.database.services.service import Service
 from src.database.services.worker import Worker
@@ -56,7 +57,7 @@ class CashierScreen(QWidget):
         self.new_order_screen.show()
 
     def on_card_press(self, order: Order):
-        self.info_dialog = _FullOrderInfoOld(order)
+        self.info_dialog = _FullOrderInfo(order)
         self.info_dialog.open()
 
     @asyncSlot()
@@ -64,9 +65,10 @@ class CashierScreen(QWidget):
         order_manager = get_order_manager()
         self.info: list[Order] = await order_manager.get_all_orders()
         for order in self.info:
+            print(order)
             client_name = order.client.name
             services = order.services
-            services_count = len(services)
+            services_count = len(services) or 0
             service_name = services[0].name
             service_name += f"+{services_count - 1}" if services_count > 1 else ""
             service_price = order.full_price or "Нет точной"
@@ -76,44 +78,115 @@ class CashierScreen(QWidget):
                                        lambda _, o=order: self.on_card_press(o),
                                        str(service_price))
 
-class _FullOrderInfoOld(QDialog):
+class InfoBox(QWidget):  # Наследуемся от QWidget, не от QVBoxLayout
+    def __init__(self, label_text: str, value_text: str, parent=None, hex_color: str = "#f0f0f0", multi_line=False):
+        super().__init__(parent)
+
+        # Создаём основной layout для этого виджета
+        layout = QVBoxLayout(self)
+        layout.setSpacing(3)  # Промежуток между label и field (3 пикселя)
+        layout.setContentsMargins(0, 0, 0, 0)  # Убираем отступы контейнера
+
+        # Label
+        self.label = QLabel(label_text)
+        self.label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #555;
+                padding-bottom: 2px;
+            }
+        """)
+
+        if multi_line:
+            self.value = QTextEdit(value_text)
+            self.value.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        else:
+            self.value = QLineEdit(value_text)
+        # Value field (только для чтения, серый фон)
+
+        self.value.setReadOnly(True)
+        self.value.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {hex_color};
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                padding: 8px 10px;
+                font-size: 13px;
+                color: #333;
+            }}
+            QTextEdit {{
+                background-color: {hex_color};
+                border: 1px solid #d0d0d0;
+                border-radius: 6px;
+                padding: 8px 10px;
+                font-size: 13px;
+                color: #333;
+            }}
+        """)
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.value)
+
+
+class _FullOrderInfo(QDialog):
     def __init__(self, order: Order):
         super().__init__()
-        #TODO: Сделать расчёт стоимости в зависимости от добавленных услуг
-        self.setWindowTitle("Иформация о заказе")
+        self.order = order
+        self.setMinimumWidth(500)
+        main_layout = QHBoxLayout()
 
-        layout = QVBoxLayout()
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(15)  # Отступ между блоками
+        left_layout.setContentsMargins(20, 20, 20, 20)
 
-        client_name_label = QLabel(f"Фио клиента: {order.client.name}")
-        client_phone_label = QLabel(f"Номер клиента: {order.client.phone}")
-        client_address = order.client.address or "не выдан"
-        client_address_label = QLabel(f"Адресс клиента: {client_address}")
+        client_name_box = InfoBox("ФИО клиента:", order.client.name)
+        client_phone_box = InfoBox("Номер клиента:", order.client.phone)
+        client_address_box = InfoBox("Адрес клиента:", order.client.address or "Не указан")
+        service_list_label = QLabel("Список услуг:")
+        services_list = QListWidget()
+        services_list.setStyleSheet("background-color: #f0f0f0;")
+        for service in order.services:
+            item = QListWidgetItem(service.name)
+            item.setToolTip(f"{service.price}₽" or "Нет точной")
+            services_list.addItem(item)
+        services_price = 0
+        for service in order.services:
+            services_price += service.price or 0
+        services_price_box = InfoBox("Общая цена услуг:", str(services_price), hex_color="#0dbc5f")
 
-        # service_name_label = QLabel(f"Услуга: {order.service.name}")
-        # service_desc_label = QLabel(f"Описание услуги: {order.service.description}")
-        service_price = order.full_price or "нет точной, до завершения заказа"
-        service_price_label = QLabel(f"Цена услуги: {service_price}")
-        worker_name = order.worker.name if order.worker is not None else "не назначен"
-        worker_name_label = QLabel(f"Имя наначенного сотрудника: {worker_name}")
-        trouble_desc_label = QLabel(f"Описание проблемы: {order.trouble_description}")
-        status_label = QLabel(f"Статус: {order.status}")
-        accept_time_label = QLabel(f"Время принятия: {order.accept_date}")
-        finish_time_label = QLabel(f"Время завершения: {order.finish_date}")
+        accept_date_box = InfoBox("Дата принятия заказа:", order.accept_date)
+        finish_date_box = InfoBox("Дата завершения заказа: ", order.finish_date)
 
-        layout.addWidget(client_name_label)
-        layout.addWidget(client_phone_label)
-        layout.addWidget(client_address_label)
+        left_layout.addWidget(client_name_box)
+        left_layout.addWidget(client_phone_box)
+        left_layout.addWidget(client_address_box)
+        left_layout.addWidget(service_list_label)
+        left_layout.addWidget(services_list)
+        left_layout.addWidget(services_price_box)
+        left_layout.addWidget(accept_date_box)
+        left_layout.addWidget(finish_date_box)
 
-        # layout.addWidget(service_name_label)
-        # layout.addWidget(service_desc_label)
-        layout.addWidget(service_price_label)
-        layout.addWidget(worker_name_label)
-        layout.addWidget(trouble_desc_label)
-        layout.addWidget(status_label)
-        layout.addWidget(accept_time_label)
-        layout.addWidget(finish_time_label)
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.accept)
+        left_layout.addWidget(close_btn)
 
-        self.setLayout(layout)
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(15)
+        right_layout.setContentsMargins(20, 20, 20, 20)
+        right_grid_layout = QGridLayout()
+        worker = order.worker
+        worker_name = "Не назначен" if not worker else worker.name
+        worker_name_box = InfoBox("Назначенный сотрудник:", worker_name)
+        order_statue_box = InfoBox("Статус заказа:", order.status)
+        right_grid_layout.addWidget(worker_name_box, 0, 0)
+        right_grid_layout.addWidget(order_statue_box, 0, 1)
+        trouble_description = InfoBox("Описание проблемы:", order.trouble_description, multi_line=True)
+        right_layout.addLayout(right_grid_layout)
+        right_layout.addWidget(trouble_description)
+
+        main_layout.addLayout(left_layout)
+        main_layout.addLayout(right_layout)
+        self.setLayout(main_layout)
 
 class NewOrderScreen(QWidget):
     def __init__(self):
