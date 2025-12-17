@@ -51,6 +51,9 @@ class Order:
             return False
         return self.worker == worker
 
+    def is_finished(self) -> bool:
+        return self.finish_date is not None
+
     def get_full_price(self) -> int:
         price: int = 0
         for service in self.services:

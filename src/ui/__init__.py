@@ -266,20 +266,28 @@ class _CardWidget(QPushButton):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
 
-        name_label = QLabel(name)
-        desc_label = QLabel(desc)
-        help_label = QLabel(help)
-        help_desc_label = QLabel(help_desc)
+        self.name_label = QLabel(name)
+        self.desc_label = QLabel(desc)
+        self.help_label = QLabel(help)
+        self.help_desc_label = QLabel(help_desc)
 
-        layout.addWidget(name_label, 0, 0)
-        layout.addWidget(desc_label, 1, 0)
-        layout.addWidget(help_label, 0, 1, Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(help_desc_label, 1, 1, Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.name_label, 0, 0)
+        layout.addWidget(self.desc_label, 1, 0)
+        layout.addWidget(self.help_label, 0, 1, Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.help_desc_label, 1, 1, Qt.AlignmentFlag.AlignRight)
         self.setLayout(layout)
 
         self.setMaximumHeight(70)
         self.setMinimumHeight(50)
 
+    def update_card_info(self, name: str, desc: str, full_info: Client | Worker | Service | Order, help: str | None = None, help_desc: str | None = None):
+        self.info = full_info
+        self.name_label.setText(name)
+        self.desc_label.setText(desc)
+        if help is not None:
+            self.help_label.setText(help)
+        if help_desc is not None:
+            self.help_desc_label.setText(help_desc)
 
 class CardListWidget(QWidget):
     def __init__(self):
@@ -329,10 +337,23 @@ class CardListWidget(QWidget):
             self.cards[card_id] = card
             self.layout.addWidget(card)
 
+    def update_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
+        card_id = full_card_info.id
+        if card_id in self.cards:
+            self.cards[card_id].update_card_info(card_name, card_desc, full_card_info, card_help, card_help_desc)
+            self.cards[card_id].clicked.connect(func)
+
     def clear_list(self):
         cards = self.scroll.findChildren(_CardWidget)
         for card in cards:
             card.deleteLater()
+
+    def get_card_full_info(self, card_id: int):
+        for card in self.cards.values():
+            if card.info.id == card_id:
+                return card.info
+        return None
+
 
 def check_errors(fields: list[QLineEdit], error_label: QLabel):
     has_error = False

@@ -84,10 +84,11 @@ class LoginScreen(QWidget):
         if role in role_to_screen:
             screen_index = role_to_screen[role]
             target_screen = self.stack_widget.widget(screen_index)
-            print(f"Role: {role}, Screen index: {screen_index}, Target screen: {target_screen}")
+
+            self.stack_widget.setCurrentIndex(screen_index)
 
             if hasattr(target_screen, "on_show"):
                 await target_screen.on_show(account)
-            self.stack_widget.setCurrentIndex(screen_index)
+
 
         self.login_button.setEnabled(True)

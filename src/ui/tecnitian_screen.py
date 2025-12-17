@@ -1,3 +1,5 @@
+import asyncio
+
 from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QLabel, QDialog, QGridLayout, QHBoxLayout, QTabWidget
 import src.database as db
 from qasync import asyncSlot
@@ -10,6 +12,7 @@ class TechnicianScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
         super().__init__()
         self.stack_widget = stack_widget
+        self.order_manager = None
         self.worker = None
         self.layout = QVBoxLayout()
         self.orders = []
@@ -30,24 +33,32 @@ class TechnicianScreen(QWidget):
 
     @asyncSlot()
     async def on_show(self, worker: Worker):
-        order_manager = db.get_order_manager()
-        self.worker_orders = await order_manager.get_workers_orders(worker)
-        self.not_taken_orders = await order_manager.get_not_taken_orders()
-        for order in self.not_taken_orders:
-            self.not_taken_orders_card_list.create_card(
-                card_name=order.get_service_names(False),
-                card_desc=order.trouble_description,
-                full_card_info=self.not_taken_orders,
-                func=lambda: print("a"),
-            )
+        self.worker = worker
+        self.order_manager = db.get_order_manager()
+        while self.isVisible():
+            await self.get_not_taken_orders()
+            await self.get_worker_orders()
+            await asyncio.sleep(30)
+
+    async def get_worker_orders(self):
+        self.worker_orders = await self.order_manager.get_workers_orders(self.worker)
         for order in self.worker_orders:
             self.worker_orders_card_list.create_card(
                 card_name=order.get_service_names(False),
                 card_desc=order.trouble_description,
-                full_card_info=self.not_taken_orders,
+                full_card_info=order,
                 func=lambda: print("a"),
             )
 
+    async def get_not_taken_orders(self):
+        self.not_taken_orders = await self.order_manager.get_not_taken_orders()
+        for order in self.not_taken_orders:
+            self.not_taken_orders_card_list.create_card(
+                card_name=order.get_service_names(False),
+                card_desc=order.trouble_description,
+                full_card_info=order,
+                func=lambda: print("a"),
+            )
 class GetOrderDialog(QDialog):
     def __init__(self, order: Order):
         super().__init__()

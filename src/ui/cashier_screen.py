@@ -37,6 +37,7 @@ class CashierScreen(QWidget):
 
         self.info = []
         self.stack_widget = stack_widget
+        self.order_manager = None
 
         main_layout = QVBoxLayout(self)
 
@@ -59,18 +60,24 @@ class CashierScreen(QWidget):
         self.info_dialog.open()
 
     async def fill_cards(self):
-        order_manager = get_order_manager()
-        self.info: list[Order] = await order_manager.get_all_orders()
+        self.info: list[Order] = await self.order_manager.get_all_orders()
         for order in self.info:
             client_name = order.client.name
             service_name = order.get_service_names()
             service_price = order.get_full_price() or "Нет точной"
+
+            self.card_list.update_card(client_name, service_name, order,
+                                       lambda _, o=order: self.on_card_press(o),
+                                        str(service_price))
+
             self.card_list.create_card(client_name, service_name, order,
                                        lambda _, o=order: self.on_card_press(o),
-                                       str(service_price))
+                                        str(service_price))
 
     @asyncSlot()
     async def on_show(self):
+        self.order_manager = get_order_manager()
+        print(self.isVisible())
         while self.isVisible():
             await self.fill_cards()
             await asyncio.sleep(30)
@@ -265,6 +272,7 @@ class NewOrder(QDialog):
     def __init__(self, parent: CashierScreen):
         super().__init__()
         self.parent = parent
+        self.order_manager = parent.order_manager
         main_layout = QHBoxLayout()
         left_layout = QVBoxLayout()
 
@@ -340,7 +348,6 @@ class NewOrder(QDialog):
     @asyncSlot()
     async def create_order(self):
         error_msg: str = ""
-        order_manager = get_order_manager()
         client_name: str = self.client_name_box.get_value()
         client_phone: str = self.client_phone_box.get_value()
         client_address: str = self.client_address_box.get_value()
@@ -361,7 +368,7 @@ class NewOrder(QDialog):
             return
 
         try:
-            created: bool = await order_manager.make_order(
+            created: bool = await self.order_manager.make_order(
                 client_phone,
                 trouble_desc,
                 device_type,
@@ -373,7 +380,7 @@ class NewOrder(QDialog):
             self.error_label.setText(str(e))
             self.client_name_box.show()
             self.client_address_box.show()
-            result = await order_manager.make_order_new_client(
+            result = await self.order_manager.make_order_new_client(
                 client_name,
                 client_phone,
                 client_address,
