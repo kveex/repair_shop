@@ -35,19 +35,17 @@ class TechnicianScreen(QWidget):
         self.not_taken_orders = await order_manager.get_not_taken_orders()
         for order in self.not_taken_orders:
             self.not_taken_orders_card_list.create_card(
-                card_name=order.service.name,
-                card_desc=order.service.description,
+                card_name=order.get_service_names(False),
+                card_desc=order.trouble_description,
                 full_card_info=self.not_taken_orders,
                 func=lambda: print("a"),
-                card_help_desc=order.trouble_description
             )
         for order in self.worker_orders:
             self.worker_orders_card_list.create_card(
-                card_name=order.service.name,
-                card_desc=order.service.description,
+                card_name=order.get_service_names(False),
+                card_desc=order.trouble_description,
                 full_card_info=self.not_taken_orders,
                 func=lambda: print("a"),
-                card_help_desc=order.trouble_description
             )
 
 class GetOrderDialog(QDialog):

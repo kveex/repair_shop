@@ -73,7 +73,110 @@ QPushButton[objectName*="cancel"]:hover, QPushButton[objectName*="delete"]:hover
     background-color: #fa5252;
 }
 
-QListWidget, QTreeWidget, QTableWidget {
+QComboBox {
+    background-color: {hex_color};
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #333;
+    min-height: 35px;  /* Важно для корректного отображения стрелки */
+}
+
+/* Стрелка справа */
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+    border-left: 1px solid #d0d0d0;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+/* Иконка стрелки (можно убрать или заменить) */
+QComboBox::down-arrow {
+    image: none;  /* Убираем стандартную иконку */
+    width: 12px;
+    height: 12px;
+}
+
+/* Выпадающий список */
+QComboBox QAbstractItemView {
+    background-color: #ffffff;  /* Белый фон списка */
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    padding: 4px;
+    selection-background-color: #e7f5ff;  /* Цвет выбранного */
+    selection-color: #333;
+    outline: none;  /* Убирает пунктирную рамку */
+}
+
+/* Элементы внутри списка */
+QComboBox QAbstractItemView::item {
+    padding: 8px 10px;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+/* Эффект при наведении */
+QComboBox QAbstractItemView::item:hover {
+    background-color: #f0f0f0;
+}
+
+QListWidget {
+    background-color: #f0f0f0;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #333;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    margin: 2px 0;
+    border-radius: 4px;
+}
+
+QListWidget::item:selected {
+    border: 2px solid #d1d1d1;
+    color: #333;
+}
+
+QListWidget::item:hover {
+    background-color: #d1d1d1;
+}
+
+QListWidget QScrollBar:vertical {
+        border: none;
+        background: #f0f0f0;
+        width: 12px;
+        margin: 0;
+}
+    
+/* Ползунок (thumb) */
+QListWidget QScrollBar::handle:vertical {
+    background: #d0d0d0;
+    border-radius: 6px;
+    min-height: 30px;
+}
+
+/* Убираем СТРЕЛКИ (квадратные кнопки) */
+QListWidget QScrollBar::add-line:vertical,
+QListWidget QScrollBar::sub-line:vertical {
+    height: 0px;
+    border: none;
+    background: none;
+}
+
+/* Убираем области между ползунком и стрелками */
+QListWidget QScrollBar::add-page:vertical,
+QListWidget QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QTreeWidget, QTableWidget {
     background-color: #ffffff;
     color: #212529;
     border: 1px solid #dee2e6;
@@ -81,7 +184,7 @@ QListWidget, QTreeWidget, QTableWidget {
     padding: 5px;
 }
 
-QListWidget::item:hover, QTableWidget::item:hover {
+QTableWidget::item:hover {
     background-color: #e7f5ff;
 }
 
@@ -183,6 +286,7 @@ class CardListWidget(QWidget):
         super().__init__()
 
         main_layout = QVBoxLayout(self)
+        self.cards: dict[int, _CardWidget] = {}
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -206,30 +310,32 @@ class CardListWidget(QWidget):
 
     def search_card(self, _=None):
         q = self.search.text().strip().lower()
-        cards = self.scroll.findChildren(_CardWidget, "cardWidget", Qt.FindChildOption.FindChildrenRecursively)
-        if not cards:
-            return
-
-        if q == "":
-            for card in cards:
+        if not q:
+            for card in self.cards.values():
                 card.show()
             return
 
-        for card in cards:
-            info_list = card.info
-            visible = any(q in str(field).lower() for field in asdict(info_list).items())
+        from dataclasses import asdict
+        for card_id, card in self.cards.items():
+            info_dict = asdict(card.info)
+            visible = any(q in str(value).lower() for value in info_dict.values())
             card.setVisible(visible)
 
     def create_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
-        card = _CardWidget(card_name, card_desc, full_card_info, card_help, card_help_desc)
-        card.clicked.connect(func)
-        self.layout.addWidget(card)
+        card_id = full_card_info.id
+        if not card_id in self.cards:
+            card = _CardWidget(card_name, card_desc, full_card_info, card_help, card_help_desc)
+            card.clicked.connect(func)
+            self.cards[card_id] = card
+            self.layout.addWidget(card)
+
+    def clear_list(self):
+        cards = self.scroll.findChildren(_CardWidget)
+        for card in cards:
+            card.deleteLater()
 
 def check_errors(fields: list[QLineEdit], error_label: QLabel):
     has_error = False
-
-    # if not error_label.isHidden():
-    #     raise ValueError("Error label needs to be hidden first!")
 
     for field in fields:
         if hasattr(field, "toPlainText"):
@@ -248,6 +354,7 @@ def check_errors(fields: list[QLineEdit], error_label: QLabel):
         error_label.show()
         return
 
+#Переделать этот метод полностью
 async def check_empty_fields(fields: list[QLineEdit], error_label: QLabel):
     has_error = False
 
@@ -265,8 +372,10 @@ async def check_empty_fields(fields: list[QLineEdit], error_label: QLabel):
             has_error = True
         else:
             field.setStyleSheet("")
+            error_label.setStyleSheet("")
 
     if has_error:
-        error_label.setText("Все поля должны быть заполнены!")
+        error_label.setText("Эти поля должны быть заполнены!")
+        error_label.setStyleSheet("color: red")
         error_label.show()
     return has_error

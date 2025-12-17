@@ -1,6 +1,7 @@
-from supabase import Client as SupabaseClient
+from supabase import AsyncClient
 from dataclasses import dataclass
 from logger_config import logger
+from src.utils import validate_phone, format_phone_for_display
 
 class ClientNotExistsError(Exception): pass
 class ClientExistsError(Exception): pass
@@ -13,12 +14,12 @@ class Client:
     address: str | None = None
 
 class ClientManager:
-    def __init__(self, supabase):
-        self.supabase = supabase
+    def __init__(self, supabase: AsyncClient):
+        self.supabase: AsyncClient = supabase
 
     async def delete_client(self, client_id: int) -> bool:
         try:
-            response = await self.supabase.table("clients").delete().eq("id", client_id).execute().data
+            response = await self.supabase.table("clients").delete().eq("id", client_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -27,21 +28,23 @@ class ClientManager:
                 logger.error(msg)
                 return False
 
-        if not response:
+        if not response.data:
             raise ClientNotExistsError(f"Клиент с ID {client_id} не удален, так как его не существует")
 
         logger.info(f"Клиент с ID {client_id} успешно удален")
         return True
 
-    def get_all_clients(self) -> list[Client]:
-        clients: list = self.supabase.table("clients").select("*").execute().data
+    async def get_all_clients(self) -> list[Client]:
+        response = await self.supabase.table("clients").select("*").execute()
 
-        if not clients:
+        data = response.data
+
+        if not data:
             raise ClientNotExistsError("Клиентов в базе данных нет")
 
         result: list = []
 
-        for client_info in clients:
+        for client_info in data:
             name: str = client_info["name"]
             phone: str = client_info["phone"]
             address: str = client_info["address"]
@@ -76,13 +79,13 @@ class ClientManager:
         return Client(name=name, phone=phone, id=client_info["id"], address=address)
 
     async def get_client(self, client_phone: str) -> Client:
-        if len(client_phone) != 12 or client_phone[0:2] != "+7": raise ValueError("Номер телефона должен состоять из 11 цифр и начинаться с +7")
+        client_phone: str = validate_phone(client_phone)
 
         client_info = await self.supabase.table("clients").select("*").eq("phone", client_phone).execute()
         data = client_info.data
 
         if not data:
-            raise ClientNotExistsError(f"Клиент с номером телефона [{client_phone}] не найден")
+            raise ClientNotExistsError(f"Клиент с номером телефона {format_phone_for_display(client_phone)} не найден")
 
         c_id: int = data[0]["id"]
         phone: str = data[0]["phone"]

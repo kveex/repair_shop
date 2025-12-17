@@ -2,6 +2,7 @@ from supabase import AsyncClient
 from datetime import datetime
 from logger_config import logger
 from dataclasses import dataclass
+from enum import IntEnum
 
 from src.database.services.service import Service
 from src.database.services.worker import Worker
@@ -9,17 +10,37 @@ from src.database.services.client import ClientNotExistsError, Client, ClientMan
 
 now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
+class Priorities(IntEnum):
+    NORMAL = 0
+    HIGH = 1
+    EMERGENT = 2
+
+priority_to_name = {
+    Priorities.NORMAL: "Обычный",
+    Priorities.HIGH: "Высокий",
+    Priorities.EMERGENT: "Срочный"
+}
+
+priority_to_color = {
+    Priorities.NORMAL: "#f0f0f0",
+    Priorities.HIGH: "#f2b02b",
+    Priorities.EMERGENT: "#f2352b"
+}
 
 @dataclass(frozen=True, order=True)
 class Order:
     client: Client
     services: list[Service] | None
     worker: Worker | None
-    full_price: int | None
     trouble_description: str
     status: str
     accept_date: str
     finish_date: str
+    device_type: str
+    device_brand: str
+    device_model: str
+    technician_notes: str
+    priority: Priorities
     id: int
 
     def is_taken(self) -> bool:
@@ -30,6 +51,22 @@ class Order:
             return False
         return self.worker == worker
 
+    def get_full_price(self) -> int:
+        price: int = 0
+        for service in self.services:
+            price += service.price
+        return price
+
+    def get_service_names(self, short: bool = True) -> str:
+        if not self.services:
+            return "Услуг нет"
+
+        if short:
+            first_service = self.services[0].name
+            service_count = len(self.services) - 1
+            return f"{first_service}+{service_count}" if service_count > 0 else first_service
+        else:
+            return ", ".join(service.name for service in self.services)
 
 async def _get_orders(orders: list) -> list[Order]:
     result: list = []
@@ -64,22 +101,31 @@ async def _get_orders(orders: list) -> list[Order]:
             worker_id: int = worker_info.get("id")
             worker = Worker(name=worker_name, role=worker_role, id=worker_id)
 
-        full_price: int | None = order.get("full_price", None)
         trouble_desc: str = order.get("trouble_description")
         status: str = order.get("status")
         accept_date: str = order.get("accept_date")
         finish_date: str = order.get("finish_date") or "Не завершен"
+        device_type: str = order.get("device_type") or "Не указан"
+        device_brand: str = order.get("device_brand") or "Не указан"
+        device_model: str = order.get("device_model") or "Не указана"
+        technician_notes: str = order.get("technician_notes") or "Заметок не было указано"
+        priority_code: int = order.get("priority")
+        priority: Priorities = Priorities(priority_code)
         order_id: int = order.get("id")
 
         order = Order(
             client=client,
             services=services_list,
             worker=worker,
-            full_price=full_price,
             trouble_description=trouble_desc,
             status=status,
             accept_date=accept_date,
             finish_date=finish_date,
+            device_type=device_type,
+            device_brand=device_brand,
+            device_model=device_model,
+            technician_notes=technician_notes,
+            priority=priority,
             id=order_id
         )
 
@@ -99,10 +145,14 @@ class OrderManager:
                                     client_name: str,
                                     client_phone: str,
                                     client_address: str | None,
-                                    trouble_description: str) -> tuple[Client | None, bool]:
+                                    trouble_description: str,
+                                    device_type: str,
+                                    device_brand: str,
+                                    device_model: str,
+                                    priority: int) -> tuple[Client | None, bool]:
         try:
             client = await self.client_manager.add_client(client_name, client_phone, client_address)
-            good = await self.make_order(client.phone, trouble_description)
+            good = await self.make_order(client.phone, trouble_description, device_type, device_brand, device_model, priority)
         except Exception as e:
             msg = str(e)
             logger.error(msg)
@@ -114,7 +164,12 @@ class OrderManager:
 
         return client, good
 
-    async def make_order(self, client_phone: str, trouble_description: str) -> bool:
+    async def make_order(self, client_phone: str,
+                         trouble_description: str,
+                         device_type: str,
+                         device_brand: str,
+                         device_model: str,
+                         priority: int) -> bool:
         client: Client = await self.client_manager.get_client(client_phone)
 
         if client is None: raise ClientNotExistsError("Такого клиента не существует")
@@ -125,7 +180,11 @@ class OrderManager:
             await self.supabase.table("orders").insert({
                 "client_id": client.id,
                 "trouble_description": trouble_description,
-                "accept_date": now_date
+                "device_type": device_type,
+                "device_brand": device_brand,
+                "device_model": device_model,
+                "accept_date": now_date,
+                "priority": priority
             }).execute()
 
         except Exception as e:
@@ -134,7 +193,7 @@ class OrderManager:
             return False
 
         logger.info(
-            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}")
+            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}, Приоритет: {priority}")
         return True
 
     async def get_all_orders(self) -> list[Order]:
