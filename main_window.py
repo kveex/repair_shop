@@ -10,7 +10,7 @@ from src.ui.login_screen import LoginScreen
 from src.ui.manager_screen import ManagerScreen
 from src.ui.register_screen import RegisterScreen
 from src.ui.storager_screen import StoragerScreen
-from src.ui.tecnitian_screen import TechnicianScreen
+from src.ui.technician_screen import TechnicianScreen
 
 
 class MainWindow(QMainWindow):

@@ -1,18 +1,16 @@
 import asyncio
 
-from PySide6.QtGui import QTextOption
-from PySide6.QtWidgets import (QWidget, QStackedWidget, QVBoxLayout,
-                               QPushButton, QLabel, QComboBox,
-                               QLineEdit, QTextEdit, QDialog,
-                               QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QWidget, QStackedWidget,
+                               QVBoxLayout, QPushButton, QLabel,
+                               QComboBox, QDialog,
                                QHBoxLayout, QGridLayout)
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
-from src.ui import CardListWidget
+from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox
 from PySide6.QtCore import Qt
 from qasync import asyncSlot
 
-from src.database import get_order_manager
+from src.database import get_order_manager, get_service_manager
 from src.database.services.order import Order, priority_to_name, priority_to_color
 from src.database.services.client import ClientNotExistsError
 
@@ -64,126 +62,21 @@ class CashierScreen(QWidget):
         for order in self.info:
             client_name = order.client.name
             service_name = order.get_service_names()
-            service_price = order.get_full_price() or "Нет точной"
-
-            self.card_list.update_card(client_name, service_name, order,
-                                       lambda _, o=order: self.on_card_press(o),
-                                        str(service_price))
-
-            self.card_list.create_card(client_name, service_name, order,
-                                       lambda _, o=order: self.on_card_press(o),
-                                        str(service_price))
+            service_price = order.get_full_price()
+            service_price_str = f"{service_price}₽" if service_price else "Нет точной цены"
+            self.card_list.sync_card(
+                client_name, service_name, order,
+                lambda _, o=order: self.on_card_press(o),
+                service_price_str
+            )
 
     @asyncSlot()
     async def on_show(self):
         self.order_manager = get_order_manager()
-        print(self.isVisible())
+        await self.new_order_screen.fill_services_box()
         while self.isVisible():
             await self.fill_cards()
             await asyncio.sleep(30)
-
-class InfoBox(QWidget):
-    def __init__(self, label_text: str, value_text: str, parent=None, hex_color: str = "#f0f0f0", multi_line=False):
-        super().__init__(parent)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.label = QLabel(label_text)
-        self.label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                color: #555;
-                padding-bottom: 2px;
-            }
-        """)
-
-        if multi_line:
-            self.value = QTextEdit(value_text)
-            self.value.setWordWrapMode(QTextOption.WrapMode.WordWrap)
-        else:
-            self.value = QLineEdit(value_text)
-
-        self.value.setReadOnly(True)
-        self.value.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {hex_color};
-                border: 1px solid #d0d0d0;
-                border-radius: 6px;
-                padding: 8px 10px;
-                font-size: 13px;
-                color: #333;
-            }}
-            QTextEdit {{
-                background-color: {hex_color};
-                border: 1px solid #d0d0d0;
-                border-radius: 6px;
-                padding: 8px 10px;
-                font-size: 13px;
-                color: #333;
-            }}
-        """)
-
-        layout.addWidget(self.label)
-        layout.addWidget(self.value)
-
-class InputBox(QWidget):
-    def __init__(self, label_text, hex_color: str = "#ffffff", multi_line=False):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.label = QLabel(label_text)
-        self.label.setStyleSheet("""
-                    QLabel {
-                        font-size: 12px;
-                        color: #555;
-                        padding-bottom: 2px;
-                    }
-                """)
-
-        if multi_line:
-            self.value_input = QTextEdit()
-            self.value_input.setWordWrapMode(QTextOption.WrapMode.WordWrap)
-        else:
-            self.value_input = QLineEdit()
-
-        self.value_input.setStyleSheet(f"""
-                    QLineEdit {{
-                        background-color: {hex_color};
-                        border: 1px solid #d0d0d0;
-                        border-radius: 6px;
-                        padding: 8px 10px;
-                        font-size: 13px;
-                        color: #333;
-                    }}
-                    QTextEdit {{
-                        background-color: {hex_color};
-                        border: 1px solid #d0d0d0;
-                        border-radius: 6px;
-                        padding: 8px 10px;
-                        font-size: 13px;
-                        color: #333;
-                    }}
-                """)
-
-        layout.addWidget(self.label)
-        layout.addWidget(self.value_input)
-
-    def get_value(self) -> str:
-        if hasattr(self.value_input, "toPlainText"):
-            text = self.value_input.toPlainText()
-        else:
-            text = self.value_input.text()
-        return text
-
-    def no_input(self) -> bool:
-        if not self.get_value():
-            self.value_input.setStyleSheet("border: 2px solid red; border-radius: 5px;")
-            return True
-        return False
 
 class FullOrderInfo(QDialog):
     def __init__(self, order: Order):
@@ -201,17 +94,10 @@ class FullOrderInfo(QDialog):
         phone: str = format_phone_for_display(order.client.phone)
         client_phone_box = InfoBox("Номер клиента:", phone)
         client_address_box = InfoBox("Адрес клиента:", order.client.address or "Не указан")
-        service_list_label = QLabel("Список услуг:")
-        service_list_label.setStyleSheet("font-size: 12px; color: #555; padding-bottom: 2px;")
-        services_list = QListWidget()
-        for service in order.services:
-            item = QListWidgetItem(service.name)
-            item.setToolTip(f"{service.price}₽" or "Нет точной")
-            services_list.addItem(item)
-        services_price = 0
-        for service in order.services:
-            services_price += service.price or 0
-        services_price_box = InfoBox("Общая цена услуг:", str(services_price))
+        services_box = ServiceInfoBox("Список услуг:", order.services)
+        services_price = order.get_full_price()
+        services_price_str: str = f"{services_price}₽" if services_price else "Нет точной цены"
+        services_price_box = InfoBox("Общая цена услуг:", services_price_str)
         priority_name: str = priority_to_name[order.priority]
         priority_color: str = priority_to_color[order.priority]
         priority_box = InfoBox("Приоритет заказа:", priority_name, hex_color=priority_color)
@@ -219,8 +105,7 @@ class FullOrderInfo(QDialog):
         left_layout.addWidget(client_name_box)
         left_layout.addWidget(client_phone_box)
         left_layout.addWidget(client_address_box)
-        left_layout.addWidget(service_list_label)
-        left_layout.addWidget(services_list)
+        left_layout.addWidget(services_box)
         left_layout.addWidget(services_price_box)
         left_layout.addWidget(priority_box)
 
@@ -272,7 +157,6 @@ class NewOrder(QDialog):
     def __init__(self, parent: CashierScreen):
         super().__init__()
         self.parent = parent
-        self.order_manager = parent.order_manager
         main_layout = QHBoxLayout()
         left_layout = QVBoxLayout()
 
@@ -317,6 +201,7 @@ class NewOrder(QDialog):
         self.device_model_box = InputBox("Модель устройства:")
         priority_label = QLabel("Приоритет заказа: ")
         priority_label.setStyleSheet("font-size: 12px; color: #555; padding-bottom: 2px;")
+        self.services_box = ServiceSelectBox("Возможные услуги для оказания:")
         self.priority_box = QComboBox()
         for priority, display_name in priority_to_name.items():
             self.priority_box.addItem(display_name, priority)
@@ -325,6 +210,8 @@ class NewOrder(QDialog):
         right_layout.addWidget(self.device_type_box)
         right_layout.addWidget(self.device_brand_box)
         right_layout.addWidget(self.device_model_box)
+        right_layout.addWidget(self.services_box)
+        #TODO: Переделать priority в отдельный виджет
         right_layout.addWidget(priority_label)
         right_layout.addWidget(self.priority_box)
         right_layout.addWidget(self.create_button)
@@ -333,6 +220,13 @@ class NewOrder(QDialog):
         main_layout.addLayout(right_layout)
 
         self.setLayout(main_layout)
+
+    async def fill_services_box(self):
+        service_manager = get_service_manager()
+        services: list = await service_manager.get_all_services()
+
+        for service in services:
+            self.services_box.add_service(service, False)
 
     def check_fields(self):
         client_phone = self.client_phone_box.get_value()
@@ -347,6 +241,7 @@ class NewOrder(QDialog):
 
     @asyncSlot()
     async def create_order(self):
+        order_manager = get_order_manager()
         error_msg: str = ""
         client_name: str = self.client_name_box.get_value()
         client_phone: str = self.client_phone_box.get_value()
@@ -355,6 +250,8 @@ class NewOrder(QDialog):
         device_type: str = self.device_type_box.get_value()
         device_brand: str = self.device_brand_box.get_value()
         device_model: str = self.device_model_box.get_value()
+        requested_services: list = self.services_box.get_checked_services()
+
         order_priority: int = self.priority_box.currentData()
 
         try:
@@ -368,19 +265,20 @@ class NewOrder(QDialog):
             return
 
         try:
-            created: bool = await self.order_manager.make_order(
-                client_phone,
-                trouble_desc,
-                device_type,
-                device_brand,
-                device_model,
-                order_priority
+            created: bool = await order_manager.make_order(
+                client_phone=client_phone,
+                trouble_description=trouble_desc,
+                device_type=device_type,
+                device_brand=device_brand,
+                device_model=device_model,
+                requested_services=requested_services,
+                priority=order_priority,
             )
         except ClientNotExistsError as e:
             self.error_label.setText(str(e))
             self.client_name_box.show()
             self.client_address_box.show()
-            result = await self.order_manager.make_order_new_client(
+            result = await order_manager.make_order_new_client(
                 client_name,
                 client_phone,
                 client_address,
@@ -388,12 +286,24 @@ class NewOrder(QDialog):
                 device_type,
                 device_brand,
                 device_model,
+                requested_services,
                 order_priority
             )
             created = result[1]
 
         if created:
             self.error_label.setText("Заказ успешно создан!")
+            self.client_name_box.clear_input()
+            self.client_phone_box.clear_input()
+            self.client_address_box.clear_input()
+            self.trouble_description_box.clear_input()
+            self.device_type_box.clear_input()
+            self.device_brand_box.clear_input()
+            self.device_model_box.clear_input()
+            self.services_box.reset_checks()
+            self.priority_box.setCurrentIndex(0)
+            self.client_name_box.hide()
+            self.client_address_box.hide()
 
         self.error_label.show()
         self.create_button.setEnabled(False)

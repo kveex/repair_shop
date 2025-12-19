@@ -54,14 +54,14 @@ class LoginScreen(QWidget):
             Roles.STORAGER.value: Screens.STORAGER_SCREEN.value
         }
         self.login_button.setEnabled(False)
-        debug: bool = True
+        debug: bool = False
         if debug:
-            role = "Кассир"
+            role = "Техник"
             screen_index = role_to_screen[role]
             target_screen = self.stack_widget.widget(screen_index)
 
             if hasattr(target_screen, "on_show"):
-                target_screen.on_show(Worker("a", role, 42))
+                target_screen.on_show(Worker("a", role, 1))
             self.stack_widget.setCurrentIndex(screen_index)
             self.setWindowTitle(target_screen.windowTitle())
             return

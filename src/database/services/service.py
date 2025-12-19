@@ -1,14 +1,20 @@
 from supabase import AsyncClient
 from logger_config import logger
 from dataclasses import dataclass
+from enum import Enum
 class ServiceNotExistsError(Exception): pass
 class ServiceExistsError(Exception): pass
+
+class ServiceTypes(Enum):
+    REQUESTED = "Запрошенная"
+    PROVIDED = "Оказанная"
 
 @dataclass(frozen=True, order=True)
 class Service:
     name: str
     description: str
     price: int | None
+    service_type: ServiceTypes | None
     id: int
 
 class ServiceManager:
@@ -28,7 +34,7 @@ class ServiceManager:
             else:
                 raise ValueError(f"Ошибка при добавлении услуги {name}: {msg}")
 
-        return Service(name=name, description=description, price=price, id=data[0]["id"])
+        return Service(name=name, description=description, price=price, id=data[0]["id"], service_type=None)
 
     async def delete_service(self, service: Service) -> bool:
         response = await self.supabase.table("services").delete().eq("id", service.id).execute()
@@ -48,11 +54,12 @@ class ServiceManager:
             s_id: int = service_info["id"]
             name: str = service_info["name"]
             description: str = service_info["description"]
-            price: int = service_info["price"]
+            price: int = service_info["price"] or 0
+            service_type: ServiceTypes = ServiceTypes.REQUESTED
 
             logger.info(f"ID: {s_id} | Имя: {name} | Описание: {description} | Цена: {price}")
 
-            service = Service(name=name, description=description, price=price, id=s_id)
+            service = Service(name=name, description=description, price=price, id=s_id, service_type=service_type)
 
             result.append(service)
 
@@ -78,7 +85,7 @@ class ServiceManager:
         price: int = data[0]["price"] | None
         s_id: int = data[0]["id"]
 
-        service = Service(name=name, description=description, price=price, id=s_id)
+        service = Service(name=name, description=description, price=price, id=s_id, service_type=None)
 
         return service
 
@@ -94,14 +101,31 @@ class ServiceManager:
                 name=service_info.get("name"),
                 description=service_info.get("description"),
                 price=service_info.get("price"),
-                id=service_info.get("id")
+                id=service_info.get("id"),
+                service_type=info.get("service_type")
             )
 
             result.append(service)
 
         return result
 
-    async def add_service_to_order(self, order, service: Service) -> bool:
-        response = await self.supabase.table("order_services").insert({"order_id": order.id, "service_id": service.id}).execute()
+    async def add_services_to_order(self, order_id: int, services: list[Service]) -> bool:
+        services_dicts: list[dict] = []
+        for service in services:
+            if service is None: continue
+            info = {
+                "order_id": order_id,
+                "service_id": service.id,
+                "price": service.price,
+                "service_type": service.service_type.value
+            }
+            services_dicts.append(info)
 
-        return bool(response.data)
+        try:
+            await self.supabase.table("order_services").insert(services_dicts).execute()
+        except Exception as e:
+            logger.error(str(e))
+            return False
+        return True
+
+

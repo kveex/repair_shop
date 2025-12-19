@@ -4,7 +4,7 @@ from logger_config import logger
 from dataclasses import dataclass
 from enum import IntEnum
 
-from src.database.services.service import Service
+from src.database.services.service import Service, ServiceTypes, ServiceManager
 from src.database.services.worker import Worker
 from src.database.services.client import ClientNotExistsError, Client, ClientManager
 
@@ -52,11 +52,12 @@ class Order:
         return self.worker == worker
 
     def is_finished(self) -> bool:
-        return self.finish_date is not None
+        return self.finish_date == "Не завершён"
 
-    def get_full_price(self) -> int:
+    def get_full_price(self) -> int | None:
         price: int = 0
         for service in self.services:
+            if not service.price: return None
             price += service.price
         return price
 
@@ -92,7 +93,8 @@ async def _get_orders(orders: list) -> list[Order]:
                 service_name: str = service_info.get("name")
                 service_desc: str = service_info.get("description")
                 service_price: int | None = service.get("price") or service_info.get("price")
-                s = Service(name=service_name, description=service_desc, price=service_price, id=service_id)
+                service_type: ServiceTypes = service.get("service_type")
+                s = Service(name=service_name, description=service_desc, price=service_price, service_type=service_type, id=service_id)
                 services_list.append(s)
 
         worker_info: dict | None = order.get("workers", None)
@@ -107,7 +109,7 @@ async def _get_orders(orders: list) -> list[Order]:
         trouble_desc: str = order.get("trouble_description")
         status: str = order.get("status")
         accept_date: str = order.get("accept_date")
-        finish_date: str = order.get("finish_date") or "Не завершен"
+        finish_date: str = order.get("finish_date") or "Не завершён"
         device_type: str = order.get("device_type") or "Не указан"
         device_brand: str = order.get("device_brand") or "Не указан"
         device_model: str = order.get("device_model") or "Не указана"
@@ -143,6 +145,7 @@ class OrderManager:
     def __init__(self, supabase: AsyncClient):
         self.supabase = supabase
         self.client_manager: ClientManager = ClientManager(supabase)
+        self.service_manager: ServiceManager = ServiceManager(supabase)
 
     async def make_order_new_client(self,
                                     client_name: str,
@@ -152,10 +155,19 @@ class OrderManager:
                                     device_type: str,
                                     device_brand: str,
                                     device_model: str,
+                                    requested_services: list[Service],
                                     priority: int) -> tuple[Client | None, bool]:
         try:
             client = await self.client_manager.add_client(client_name, client_phone, client_address)
-            good = await self.make_order(client.phone, trouble_description, device_type, device_brand, device_model, priority)
+            good = await self.make_order(
+                client.phone,
+                trouble_description,
+                device_type,
+                device_brand,
+                device_model,
+                requested_services,
+                priority
+            )
         except Exception as e:
             msg = str(e)
             logger.error(msg)
@@ -172,15 +184,17 @@ class OrderManager:
                          device_type: str,
                          device_brand: str,
                          device_model: str,
+                         requested_services: list[Service],
                          priority: int) -> bool:
         client: Client = await self.client_manager.get_client(client_phone)
 
         if client is None: raise ClientNotExistsError("Такого клиента не существует")
+        if requested_services is None: raise ValueError("Должна быть запрошена хотя бы одна услуга")
 
         if trouble_description == "": trouble_description = "Не описано"
 
         try:
-            await self.supabase.table("orders").insert({
+            response = await self.supabase.table("orders").insert({
                 "client_id": client.id,
                 "trouble_description": trouble_description,
                 "device_type": device_type,
@@ -189,6 +203,8 @@ class OrderManager:
                 "accept_date": now_date,
                 "priority": priority
             }).execute()
+            order_id = response.data[0].get("id")
+            await self.service_manager.add_services_to_order(order_id, requested_services)
 
         except Exception as e:
             msg = str(e)
