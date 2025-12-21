@@ -4,7 +4,6 @@ import sys
 import asyncio
 from qasync import QEventLoop
 
-from src.ui import GLOBAL_STYLES
 from src.ui.cashier_screen import CashierScreen
 from src.ui.login_screen import LoginScreen
 from src.ui.manager_screen import ManagerScreen
@@ -60,9 +59,6 @@ class MainWindow(QMainWindow):
 def main():
     # 1. Создаём QApplication
     app = QApplication(sys.argv)
-
-    app.setStyle("Fusion")
-    app.setStyleSheet(GLOBAL_STYLES)
 
     # 2. Создаём Qt-совместимый event loop
     loop = QEventLoop(app)

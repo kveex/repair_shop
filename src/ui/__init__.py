@@ -4,10 +4,10 @@ from typing import Callable
 from PySide6.QtGui import QTextOption
 from PySide6.QtWidgets import (QWidget, QPushButton, QLabel,
                                QGridLayout, QVBoxLayout, QScrollArea,
-                               QLineEdit, QTextEdit, QHBoxLayout, QCheckBox)
+                               QLineEdit, QTextEdit, QHBoxLayout, QCheckBox, QComboBox)
 from PySide6.QtCore import Qt
 
-from src.database.services.order import Order
+from src.database.services.order import Order, priority_to_name
 from src.database.services.service import Service
 from src.database.services.worker import Worker
 from src.database.services.client import Client
@@ -77,52 +77,53 @@ QPushButton[objectName*="cancel"]:hover, QPushButton[objectName*="delete"]:hover
 }
 
 QComboBox {
-    background-color: {hex_color};
-    border: 1px solid #d0d0d0;
+    background-color: #ffffff;
+    border: 1px solid #ced4da;
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 8px 12px 8px 12px;  /* Симметричный padding как у QLineEdit */
     font-size: 13px;
-    color: #333;
-    min-height: 35px;  /* Важно для корректного отображения стрелки */
+    color: #212529;
+    min-height: 32px;  /* Оптимальная высота, не слишком большая */
 }
 
-/* Стрелка справа */
+/* Кнопка выпадающего списка (стрелка) */
 QComboBox::drop-down {
     subcontrol-origin: padding;
-    subcontrol-position: top right;
-    width: 25px;
-    border-left: 1px solid #d0d0d0;
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
+    subcontrol-position: center right;
+    width: 30px;
+    border: none;  /* Убираем левую рамку */
+    background: transparent;
+    padding-right: 5px;
 }
 
-/* Иконка стрелки (можно убрать или заменить) */
+/* Иконка стрелки — используем символ Unicode для кроссплатформенности */
 QComboBox::down-arrow {
-    width: 12px;
-    height: 12px;
+    image: none;  /* Убираем стандартную иконку */
+    border: none;
 }
 
 /* Выпадающий список */
 QComboBox QAbstractItemView {
-    background-color: #ffffff;  /* Белый фон списка */
-    border: 1px solid #d0d0d0;
+    background-color: #ffffff;
+    border: 1px solid #ced4da;
     border-radius: 6px;
     padding: 4px;
-    selection-background-color: #e7f5ff;  /* Цвет выбранного */
-    selection-color: #333;
-    outline: none;  /* Убирает пунктирную рамку */
+    selection-background-color: #339af0;  /* Акцентный цвет как у selection */
+    selection-color: white;
+    outline: none;
+    margin-top: 2px;  /* Небольшой отступ от основного поля */
 }
 
 /* Элементы внутри списка */
 QComboBox QAbstractItemView::item {
-    padding: 8px 10px;
+    padding: 8px 12px;
     border-radius: 4px;
-    min-height: 30px;
+    min-height: 28px;  /* Компактные элементы */
 }
 
 /* Эффект при наведении */
 QComboBox QAbstractItemView::item:hover {
-    background-color: #f0f0f0;
+    background-color: #e7f5ff;  /* Светло-синий как у QLineEdit:focus */
 }
 
 QListWidget {
@@ -359,22 +360,31 @@ class CardListWidget(QWidget):
             if card.info.id == card_id:
                 return card.info
         return None
-
-class ServiceInfoBox(QWidget):
-    def __init__(self, label_text: str, service_list: list[Service]):
+class BoxWidget(QWidget):
+    def __init__(self, label_text: str):
         super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(3)
+        self.layout.setContentsMargins(0, 0, 0, 0)
 
         label = QLabel(label_text)
         label.setStyleSheet("""
-                    QLabel {
-                        font-size: 12px;
-                        color: #555;
-                        padding-bottom: 2px;
-                    }
-                """)
+                            QLabel {
+                                font-size: 12px;
+                                color: #555;
+                                padding-bottom: 2px;
+                            }
+                        """)
+
+        self.layout.addWidget(label)
+
+    def get_layout(self) -> QVBoxLayout:
+        return self.layout
+
+class ServiceInfoBox(BoxWidget):
+    def __init__(self, label_text: str, service_list: list[Service], on_check: Callable = None):
+        super().__init__(label_text)
+        layout = self.get_layout()
         container = QWidget()
         container.setObjectName("servicesContainer")
         container.setStyleSheet("""
@@ -391,28 +401,16 @@ class ServiceInfoBox(QWidget):
         services_layout.setContentsMargins(5, 5, 5, 5)
 
         for service in service_list:
-            item = ServiceBoxItem(service, False, False)
+            item = ServiceBoxItem(service, False, False, on_check)
             services_layout.addWidget(item)
 
-        layout.addWidget(label)
         layout.addWidget(container)
 
-class ServiceSelectBox(QWidget):
+class ServiceSelectBox(BoxWidget):
     def __init__(self, label_text: str):
-        super().__init__()
+        super().__init__(label_text)
         self.services: dict[int, ServiceBoxItem] = {}
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        label = QLabel(label_text)
-        label.setStyleSheet("""
-                            QLabel {
-                                font-size: 12px;
-                                color: #555;
-                                padding-bottom: 2px;
-                            }
-                        """)
+        layout = self.get_layout()
         container = QWidget()
         container.setObjectName("servicesContainer")
         container.setStyleSheet("""
@@ -428,11 +426,10 @@ class ServiceSelectBox(QWidget):
         self.services_layout.setSpacing(5)
         self.services_layout.setContentsMargins(5, 5, 5, 5)
 
-        layout.addWidget(label)
         layout.addWidget(container)
 
-    def add_service(self, service: Service, editable_price: bool):
-        item = ServiceBoxItem(service, editable_price, True)
+    def add_service(self, service: Service, editable_price: bool, on_check: Callable = None):
+        item = ServiceBoxItem(service, editable_price, True, on_check)
         self.services[service.id] = item
         self.services_layout.addWidget(item)
 
@@ -441,8 +438,8 @@ class ServiceSelectBox(QWidget):
 
         for service in self.services.values():
             s = service.get_service_if_checked()
-            result.append(s)
-
+            if not s is None:
+                result.append(s)
         return result
 
     def reset_checks(self):
@@ -451,7 +448,7 @@ class ServiceSelectBox(QWidget):
                 service_item.uncheck()
 
 class ServiceBoxItem(QWidget):
-    def __init__(self, service: Service, editable_price: bool, clickable: bool):
+    def __init__(self, service: Service, editable_price: bool, clickable: bool, on_check: Callable | None):
         super().__init__()
 
         self.service = service
@@ -466,17 +463,15 @@ class ServiceBoxItem(QWidget):
         service_name.setToolTip(f"Описание: {service.description}")
         service_price = QLineEdit()
         price: str = f"{service.price}₽" if service.price else "Нет начальной"
-        service_price.setToolTip(f"Цена услуги: {price}")
+        service_price.setToolTip(f"Цена услуги: {price} | Тип услуги: {service.service_type}")
         service_price.setText(price)
         service_price.setMaxLength(15)
         service_price.setEnabled(editable_price)
 
         if clickable:
             self.check_box = QCheckBox()
-            #TODO:?Сделать так чтобы вместо на сильного выбора Диагностики была проверка на то, что выбран хотя бы один сервис, если клиент вдруг захочет только профилактику
-            if service.name == "Диагностика":
-                self.check_box.setChecked(True)
-                self.check_box.setEnabled(False)
+            if not on_check is None:
+                self.check_box.checkStateChanged.connect(on_check)
 
         if self.check_box: layout.addWidget(self.check_box)
         layout.addWidget(service_name)
@@ -496,22 +491,11 @@ class ServiceBoxItem(QWidget):
             return self.service
         return None
 
-class InfoBox(QWidget):
-    def __init__(self, label_text: str, value_text: str, parent=None, hex_color: str = "#f0f0f0", multi_line=False):
-        super().__init__(parent)
+class InfoBox(BoxWidget):
+    def __init__(self, label_text: str, value_text: str, hex_color: str = "#f0f0f0", multi_line=False):
+        super().__init__(label_text)
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.label = QLabel(label_text)
-        self.label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                color: #555;
-                padding-bottom: 2px;
-            }
-        """)
+        layout = self.get_layout()
 
         if multi_line:
             self.value = QTextEdit(value_text)
@@ -521,15 +505,7 @@ class InfoBox(QWidget):
 
         self.value.setReadOnly(True)
         self.value.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {hex_color};
-                border: 1px solid #d0d0d0;
-                border-radius: 6px;
-                padding: 8px 10px;
-                font-size: 13px;
-                color: #333;
-            }}
-            QTextEdit {{
+            QLineEdit, QTextEdit {{
                 background-color: {hex_color};
                 border: 1px solid #d0d0d0;
                 border-radius: 6px;
@@ -539,24 +515,12 @@ class InfoBox(QWidget):
             }}
         """)
 
-        layout.addWidget(self.label)
         layout.addWidget(self.value)
 
-class InputBox(QWidget):
-    def __init__(self, label_text, hex_color: str = "#ffffff", multi_line=False):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setSpacing(3)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.label = QLabel(label_text)
-        self.label.setStyleSheet("""
-                    QLabel {
-                        font-size: 12px;
-                        color: #555;
-                        padding-bottom: 2px;
-                    }
-                """)
+class InputBox(BoxWidget):
+    def __init__(self, label_text: str, hex_color: str = "#ffffff", multi_line=False):
+        super().__init__(label_text)
+        layout = self.get_layout()
 
         if multi_line:
             self.value_input = QTextEdit()
@@ -565,15 +529,7 @@ class InputBox(QWidget):
             self.value_input = QLineEdit()
 
         self.value_input.setStyleSheet(f"""
-                    QLineEdit {{
-                        background-color: {hex_color};
-                        border: 1px solid #d0d0d0;
-                        border-radius: 6px;
-                        padding: 8px 10px;
-                        font-size: 13px;
-                        color: #333;
-                    }}
-                    QTextEdit {{
+                    QLineEdit, QTextEdit {{
                         background-color: {hex_color};
                         border: 1px solid #d0d0d0;
                         border-radius: 6px;
@@ -583,7 +539,6 @@ class InputBox(QWidget):
                     }}
                 """)
 
-        layout.addWidget(self.label)
         layout.addWidget(self.value_input)
 
     def get_value(self) -> str:
@@ -601,6 +556,17 @@ class InputBox(QWidget):
 
     def clear_input(self):
         self.value_input.setText("")
+
+class PriorityInputBox(BoxWidget):
+    def __init__(self, label_text: str):
+        super().__init__(label_text)
+        self.priority_box = QComboBox()
+        for priority, display_name in priority_to_name.items():
+            self.priority_box.addItem(display_name, priority)
+        self.priority_box.setCurrentIndex(0)
+
+    def get_data(self) -> int:
+        return self.priority_box.currentData()
 
 def check_errors(fields: list[QLineEdit], error_label: QLabel):
     has_error = False

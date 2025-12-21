@@ -3,6 +3,7 @@ import asyncio
 from typing import Optional
 from supabase import AsyncClient, acreate_client
 from dotenv import load_dotenv
+from logger_config import logger
 
 from src.database.services.worker import WorkerManager
 from src.database.services.order import OrderManager
@@ -41,7 +42,7 @@ async def init_db(url: str | None = None, key: str | None = None) -> None:
         _order_manager = OrderManager(_supabase)
         _service_manager = ServiceManager(_supabase)
         _client_manager = ClientManager(_supabase)
-        print("All done")
+        logger.info("Supabase initialised")
 
 def get_supabase_sync() -> AsyncClient:
     """Синхронный геттер: возвращает клиент, если он уже инициализирован, иначе бросает."""

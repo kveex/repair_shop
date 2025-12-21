@@ -226,16 +226,17 @@ class NewOrder(QDialog):
         services: list = await service_manager.get_all_services()
 
         for service in services:
-            self.services_box.add_service(service, False)
+            self.services_box.add_service(service, False, lambda: self.check_fields())
 
     def check_fields(self):
         client_phone = self.client_phone_box.get_value()
         trouble_desc = self.trouble_description_box.get_value()
         client_name = self.client_name_box.get_value()
+        requested_services = self.services_box.get_checked_services()
         if self.client_name_box.isHidden():
-            enabled = True if client_phone and trouble_desc else False
+            enabled = True if client_phone and trouble_desc and requested_services else False
         else:
-            enabled = True if client_phone and client_name and trouble_desc else False
+            enabled = True if client_phone and client_name and trouble_desc and requested_services else False
         self.error_label.hide()
         self.create_button.setEnabled(enabled)
 
@@ -251,7 +252,6 @@ class NewOrder(QDialog):
         device_brand: str = self.device_brand_box.get_value()
         device_model: str = self.device_model_box.get_value()
         requested_services: list = self.services_box.get_checked_services()
-
         order_priority: int = self.priority_box.currentData()
 
         try:
