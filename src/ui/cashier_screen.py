@@ -1,12 +1,12 @@
 import asyncio
 
 from PySide6.QtWidgets import (QWidget, QStackedWidget,
-                               QVBoxLayout, QPushButton, QLabel,
-                               QComboBox, QDialog,
+                               QVBoxLayout, QPushButton,
+                               QLabel, QDialog,
                                QHBoxLayout, QGridLayout)
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
-from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox
+from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox
 from PySide6.QtCore import Qt
 from qasync import asyncSlot
 
@@ -31,7 +31,6 @@ class CashierScreen(QWidget):
 
     def __init__(self, stack_widget: QStackedWidget):
         super().__init__()
-
 
         self.info = []
         self.stack_widget = stack_widget
@@ -137,9 +136,9 @@ class FullOrderInfo(QDialog):
         worker = order.worker
         worker_name = "Не назначен" if not worker else worker.name
         worker_name_box = InfoBox("Назначенный сотрудник:", worker_name)
-        order_statue_box = InfoBox("Статус заказа:", order.status)
+        order_status_box = InfoBox("Статус заказа:", str(order.status))
         right_grid_layout.addWidget(worker_name_box, 0, 0)
-        right_grid_layout.addWidget(order_statue_box, 0, 1)
+        right_grid_layout.addWidget(order_status_box, 0, 1)
 
         technician_notes_box = InfoBox("Заметки техника:", order.technician_notes, multi_line=True)
         trouble_description_box = InfoBox("Описание проблемы:", order.trouble_description, multi_line=True)
@@ -199,20 +198,13 @@ class NewOrder(QDialog):
         self.device_type_box = InputBox("Тип устройства:")
         self.device_brand_box = InputBox("Бренд устройства:")
         self.device_model_box = InputBox("Модель устройства:")
-        priority_label = QLabel("Приоритет заказа: ")
-        priority_label.setStyleSheet("font-size: 12px; color: #555; padding-bottom: 2px;")
         self.services_box = ServiceSelectBox("Возможные услуги для оказания:")
-        self.priority_box = QComboBox()
-        for priority, display_name in priority_to_name.items():
-            self.priority_box.addItem(display_name, priority)
-        self.priority_box.setCurrentIndex(0)
+        self.priority_box = PriorityInputBox("Приоритет заказа:")
 
         right_layout.addWidget(self.device_type_box)
         right_layout.addWidget(self.device_brand_box)
         right_layout.addWidget(self.device_model_box)
         right_layout.addWidget(self.services_box)
-        #TODO: Переделать priority в отдельный виджет
-        right_layout.addWidget(priority_label)
         right_layout.addWidget(self.priority_box)
         right_layout.addWidget(self.create_button)
 
@@ -226,7 +218,7 @@ class NewOrder(QDialog):
         services: list = await service_manager.get_all_services()
 
         for service in services:
-            self.services_box.add_service(service, False, lambda: self.check_fields())
+            self.services_box.add_service(service, True, lambda: self.check_fields())
 
     def check_fields(self):
         client_phone = self.client_phone_box.get_value()
@@ -252,7 +244,7 @@ class NewOrder(QDialog):
         device_brand: str = self.device_brand_box.get_value()
         device_model: str = self.device_model_box.get_value()
         requested_services: list = self.services_box.get_checked_services()
-        order_priority: int = self.priority_box.currentData()
+        order_priority: int = self.priority_box.get_data()
 
         try:
             client_phone = validate_phone(client_phone)
@@ -301,7 +293,7 @@ class NewOrder(QDialog):
             self.device_brand_box.clear_input()
             self.device_model_box.clear_input()
             self.services_box.reset_checks()
-            self.priority_box.setCurrentIndex(0)
+            self.priority_box.reset_index()
             self.client_name_box.hide()
             self.client_address_box.hide()
 

@@ -17,3 +17,4 @@ logging.basicConfig(
 
 # Пример: создать отдельный логгер для конкретного модуля
 logger = logging.getLogger("repair_shop")
+logging.getLogger("realtime").setLevel(logging.WARNING)

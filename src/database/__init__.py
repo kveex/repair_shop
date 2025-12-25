@@ -9,6 +9,7 @@ from src.database.services.worker import WorkerManager
 from src.database.services.order import OrderManager
 from src.database.services.service import ServiceManager
 from src.database.services.client import ClientManager
+from src.database.services.storage import StorageManager
 
 _lock = asyncio.Lock()
 _supabase: Optional[AsyncClient] = None
@@ -17,13 +18,14 @@ _worker_manager: Optional[WorkerManager] = None
 _order_manager: Optional[OrderManager] = None
 _service_manager: Optional[ServiceManager] = None
 _client_manager: Optional[ClientManager] = None
+_storage_manager: Optional[StorageManager] = None
 
 async def init_db(url: str | None = None, key: str | None = None) -> None:
     """
     Инициализация supabase + менеджеров. Можете вызывать при старте приложения.
     БЕЗОПАСНО вызывать несколько раз — инициализация выполнится один раз.
     """
-    global _supabase, _worker_manager, _order_manager, _service_manager, _client_manager
+    global _supabase, _worker_manager, _order_manager, _service_manager, _client_manager, _storage_manager
     if _supabase is not None:
         return
 
@@ -42,6 +44,7 @@ async def init_db(url: str | None = None, key: str | None = None) -> None:
         _order_manager = OrderManager(_supabase)
         _service_manager = ServiceManager(_supabase)
         _client_manager = ClientManager(_supabase)
+        _storage_manager = StorageManager(_supabase)
         logger.info("Supabase initialised")
 
 def get_supabase_sync() -> AsyncClient:
@@ -74,3 +77,8 @@ def get_client_manager() -> ClientManager:
     if _client_manager is None:
         raise RuntimeError("Supabase не инициализирован. Вызовите await init_db(...)")
     return _client_manager
+
+def get_storage_manager() -> StorageManager:
+    if _storage_manager is None:
+        raise RuntimeError("Supabase не инициализирован. Вызовите await init_db(...)")
+    return _storage_manager

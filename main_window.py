@@ -3,6 +3,7 @@ from src.database import init_db
 import sys
 import asyncio
 from qasync import QEventLoop
+from qt_material import apply_stylesheet
 
 from src.ui.cashier_screen import CashierScreen
 from src.ui.login_screen import LoginScreen
@@ -44,8 +45,9 @@ class MainWindow(QMainWindow):
         screen_to_name = {
             0: "Сервис ремонта - вход",
             1: "Панель управления менеджера",
-            2: "Список заказов",
-            3: "Выбор заказов",
+            2: "Список заказов кассира",
+            3: "Выбор заказов техника",
+            4: "Список ячеек и запросов"
         }
         if index in screen_to_name:
             self.setWindowTitle(screen_to_name[index])
@@ -59,6 +61,7 @@ class MainWindow(QMainWindow):
 def main():
     # 1. Создаём QApplication
     app = QApplication(sys.argv)
+    apply_stylesheet(app, theme="dark_lightgreen.xml")
 
     # 2. Создаём Qt-совместимый event loop
     loop = QEventLoop(app)

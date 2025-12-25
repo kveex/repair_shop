@@ -2,13 +2,20 @@ from supabase import AsyncClient
 from datetime import datetime
 from logger_config import logger
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 from src.database.services.service import Service, ServiceTypes, ServiceManager
 from src.database.services.worker import Worker
 from src.database.services.client import ClientNotExistsError, Client, ClientManager
 
 now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+class OrderStatus(Enum):
+    WAITING = "Ожидание"
+    IN_PROGRESS = "В работе"
+    STOPPED = "Отложено"
+    FINISHED = "Завершено"
+    REJECTED = "Отказ"
 
 class Priorities(IntEnum):
     NORMAL = 0
@@ -22,7 +29,7 @@ priority_to_name = {
 }
 
 priority_to_color = {
-    Priorities.NORMAL: "#f0f0f0",
+    Priorities.NORMAL: "",
     Priorities.HIGH: "#f2b02b",
     Priorities.EMERGENT: "#f2352b"
 }
@@ -33,7 +40,7 @@ class Order:
     services: list[Service] | None
     worker: Worker | None
     trouble_description: str
-    status: str
+    status: OrderStatus
     accept_date: str
     finish_date: str
     device_type: str
@@ -107,7 +114,7 @@ async def _get_orders(orders: list) -> list[Order]:
             worker = Worker(name=worker_name, role=worker_role, id=worker_id)
 
         trouble_desc: str = order.get("trouble_description")
-        status: str = order.get("status")
+        status: OrderStatus = order.get("status")
         accept_date: str = order.get("accept_date")
         finish_date: str = order.get("finish_date") or "Не завершён"
         device_type: str = order.get("device_type") or "Не указан"
