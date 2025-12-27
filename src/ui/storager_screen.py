@@ -5,6 +5,8 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QLabel, QTabWidget, QHBoxLayout, QDialog, \
     QPushButton
+from realtime import RealtimePostgresChangesListenEvent
+
 from src.database import get_storage_manager, StorageManager
 from src.database.services.storage import StorageRequest, NotExistingCellError, Cell
 from src.ui import CardListWidget, InfoBox, InputBox
@@ -37,13 +39,10 @@ class StoragerScreen(QWidget):
         self.info_dialog.open()
 
     async def fill_cards(self):
-        await self.fill_cell_cards()
-        await self.fill_request_cards()
+        requests_list: list[StorageRequest] = await self.storage_manager.get_all_requests()
+        cells_list: list[Cell] = await self.storage_manager.get_all_cells()
 
-    async def fill_cell_cards(self):
-        cells = await self.storage_manager.get_all_cells()
-
-        for cell in cells:
+        for cell in cells_list:
             cell_id: str = f"Ячейка №{cell.id}"
             cell_item: str = "Пустая ячейка"
             if cell.order:
@@ -51,17 +50,14 @@ class StoragerScreen(QWidget):
             elif cell.item:
                 cell_item = cell.item
 
-            self.cells_list.sync_card(
+            self.cells_list.create_card(
                 card_name=cell_id,
                 card_desc=cell_item,
                 full_card_info=cell,
                 func=partial(self.on_cell_card_press, cell)
             )
 
-    async def fill_request_cards(self):
-        self.storage_requests: list = await self.storage_manager.get_all_requests()
-
-        for request in self.storage_requests:
+        for request in requests_list:
             card_name: str = request.order.device_type
             card_desc: str = f"Запрошенный предмет: {request.requested_item}"
             card_help: str = "Статус: "
@@ -69,7 +65,7 @@ class StoragerScreen(QWidget):
             cell_num: Optional[int] = request.cell_number
             card_help_desc = f"Номер ячейки: {cell_num}" if cell_num else "Нет на складе"
 
-            self.request_list.sync_card(
+            self.request_list.create_card(
                 card_name=card_name,
                 card_desc=card_desc,
                 card_help=card_help,
@@ -78,12 +74,72 @@ class StoragerScreen(QWidget):
                 full_card_info=request
             )
 
+    async def handle_request_cards(self, data: dict):
+        request_id = data.get("old_record").get("id")
+        answer_type: RealtimePostgresChangesListenEvent = data.get("type")
+        request = await self.storage_manager.get_request(request_id)
+
+        card_name: str = request.order.device_type
+        card_desc: str = f"Запрошенный предмет: {request.requested_item}"
+        card_help: str = "Статус: "
+        card_help += "Завершён" if request.finished else "Ожидает"
+        cell_num: Optional[int] = request.cell_number
+        card_help_desc = f"Номер ячейки: {cell_num}" if cell_num else "Нет на складе"
+
+        if answer_type == RealtimePostgresChangesListenEvent.Insert:
+            self.request_list.create_card(
+                card_name=card_name,
+                card_desc=card_desc,
+                card_help=card_help,
+                card_help_desc=card_help_desc,
+                func=partial(self.on_request_card_press, request),
+                full_card_info=request
+            )
+        else:
+            self.request_list.update_card(
+                card_name=card_name,
+                card_desc=card_desc,
+                card_help=card_help,
+                card_help_desc=card_help_desc,
+                func=partial(self.on_request_card_press, request),
+                full_card_info=request
+            )
+
+    async def handle_cell_cards(self, data: dict):
+        cell_id: int = data.get("record").get("id")
+        answer_type: RealtimePostgresChangesListenEvent = data.get("type")
+        cell = await self.storage_manager.get_cell(cell_id)
+
+        cell_id: str = f"Ячейка №{cell.id}"
+        cell_item: str = "Пустая ячейка"
+        if cell.order:
+            cell_item = cell.order.device_type
+        elif cell.item:
+            cell_item = cell.item
+
+        if answer_type == RealtimePostgresChangesListenEvent.Insert:
+            self.cells_list.create_card(
+                card_name=cell_id,
+                card_desc=cell_item,
+                full_card_info=cell,
+                func=partial(self.on_cell_card_press, cell)
+            )
+        else:
+            self.cells_list.update_card(
+                card_name=cell_id,
+                card_desc=cell_item,
+                full_card_info=cell,
+                func=partial(self.on_cell_card_press, cell)
+            )
+
     @asyncSlot()
     async def on_show(self):
         self.storage_manager = get_storage_manager()
+        await self.fill_cards()
+        await self.storage_manager.init_order_requests_realtime(self.handle_request_cards)
+        await self.storage_manager.init_storage_realtime(self.handle_cell_cards)
         while self.isVisible():
-            await self.fill_cards()
-            await asyncio.sleep(30)
+            await asyncio.sleep(1)
 
 class FullRequestInfo(QDialog):
     def __init__(self, request_info: StorageRequest):
