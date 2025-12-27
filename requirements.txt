@@ -1,3 +1,4 @@
+realtime
 pytest
 pyside6
 qasync

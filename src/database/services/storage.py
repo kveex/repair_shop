@@ -1,12 +1,10 @@
 import asyncio
 from dataclasses import dataclass
-from functools import partial
 
 from realtime import RealtimePostgresChangesListenEvent
 from supabase import AsyncClient
 from src.database.services.order import OrderStatus
-from typing import Optional, Callable, Coroutine, Any
-
+from typing import Optional, Callable
 
 class NotExistingCellError(Exception): pass
 class StorageRealtimeConnectionError(Exception): pass
@@ -151,6 +149,7 @@ class StorageManager:
         Создаёт канал для просмотра изменений в таблице с запросами к заказу и подписывается на него.
 
         !!! Нужно подкрепить его циклом типа while True: await asyncio.sleep(1) иначе соединение упадёт !!!
+        :param handler: Функция с входным аргументом data: dict
         """
 
         await self.supabase.realtime.connect()
@@ -177,6 +176,7 @@ class StorageManager:
         Создаёт канал для просмотра изменений в таблице с ячейками на складе и подписывается на него.
 
         !!! Нужно подкрепить его циклом типа while True: await asyncio.sleep(1) иначе соединение упадёт !!!
+        :param handler: Функция с входным аргументом data: dict
         """
 
         await self.supabase.realtime.connect()

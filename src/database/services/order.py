@@ -1,3 +1,7 @@
+import asyncio
+from typing import Callable
+
+from realtime import RealtimePostgresChangesListenEvent
 from supabase import AsyncClient
 from datetime import datetime
 from logger_config import logger
@@ -33,6 +37,8 @@ priority_to_color = {
     Priorities.HIGH: "#f2b02b",
     Priorities.EMERGENT: "#f2352b"
 }
+
+class OrdersRealtimeConnectionError(Exception): pass
 
 @dataclass(frozen=True, order=True)
 class Order:
@@ -79,71 +85,75 @@ class Order:
         else:
             return ", ".join(service.name for service in self.services)
 
-async def _get_orders(orders: list) -> list[Order]:
+async def _build_order(data: dict) -> Order:
+    client_info = data.get("clients")
+    client_id: int = client_info.get("id")
+    client_name: str = client_info.get("name")
+    client_phone: str = client_info.get("phone")
+    client_address: str | None = client_info.get("address", None)
+    client: Client = Client(name=client_name, phone=client_phone, id=client_id, address=client_address)
+
+    services_info = data.get("order_services")
+    services_list: list | None = None
+    if services_info is not None:
+        services_list = []
+        for service in services_info:
+            service_info = service.get("services")
+            service_id: int = service_info.get("id")
+            service_name: str = service_info.get("name")
+            service_desc: str = service_info.get("description")
+            service_price: int | None = service.get("price") or service_info.get("price")
+            service_type: ServiceTypes = service.get("service_type")
+            s = Service(name=service_name, description=service_desc, price=service_price, service_type=service_type,
+                        id=service_id)
+            services_list.append(s)
+
+    worker_info: dict | None = data.get("workers", None)
+    worker: Worker | None = None
+
+    if worker_info is not None:
+        worker_name: str = worker_info.get("name")
+        worker_role: str = worker_info.get("role")
+        worker_id: int = worker_info.get("id")
+        worker = Worker(name=worker_name, role=worker_role, id=worker_id)
+
+    trouble_desc: str = data.get("trouble_description")
+    status: OrderStatus = data.get("status")
+    accept_date: str = data.get("accept_date")
+    finish_date: str = data.get("finish_date") or "Не завершён"
+    device_type: str = data.get("device_type") or "Не указан"
+    device_brand: str = data.get("device_brand") or "Не указан"
+    device_model: str = data.get("device_model") or "Не указана"
+    technician_notes: str = data.get("technician_notes") or "Заметок не было указано"
+    priority_code: int = data.get("priority")
+    priority: Priorities = Priorities(priority_code)
+    order_id: int = data.get("id")
+
+    order = Order(
+        client=client,
+        services=services_list,
+        worker=worker,
+        trouble_description=trouble_desc,
+        status=status,
+        accept_date=accept_date,
+        finish_date=finish_date,
+        device_type=device_type,
+        device_brand=device_brand,
+        device_model=device_model,
+        technician_notes=technician_notes,
+        priority=priority,
+        id=order_id
+    )
+
+    return order
+
+async def _build_orders_list(orders: list) -> list[Order]:
     result: list = []
 
     for order in orders:
-        client_info = order.get("clients")
-        client_id: int = client_info.get("id")
-        client_name: str = client_info.get("name")
-        client_phone: str = client_info.get("phone")
-        client_address: str | None = client_info.get("address", None)
-        client: Client = Client(name=client_name, phone=client_phone, id=client_id, address=client_address)
+        o = await _build_order(order)
 
-        services_info = order.get("order_services")
-        services_list: list | None = None
-        if services_info is not None:
-            services_list = []
-            for service in services_info:
-                service_info = service.get("services")
-                service_id: int = service_info.get("id")
-                service_name: str = service_info.get("name")
-                service_desc: str = service_info.get("description")
-                service_price: int | None = service.get("price") or service_info.get("price")
-                service_type: ServiceTypes = service.get("service_type")
-                s = Service(name=service_name, description=service_desc, price=service_price, service_type=service_type, id=service_id)
-                services_list.append(s)
-
-        worker_info: dict | None = order.get("workers", None)
-        worker: Worker | None = None
-
-        if worker_info is not None:
-            worker_name: str = worker_info.get("name")
-            worker_role: str = worker_info.get("role")
-            worker_id: int = worker_info.get("id")
-            worker = Worker(name=worker_name, role=worker_role, id=worker_id)
-
-        trouble_desc: str = order.get("trouble_description")
-        status: OrderStatus = order.get("status")
-        accept_date: str = order.get("accept_date")
-        finish_date: str = order.get("finish_date") or "Не завершён"
-        device_type: str = order.get("device_type") or "Не указан"
-        device_brand: str = order.get("device_brand") or "Не указан"
-        device_model: str = order.get("device_model") or "Не указана"
-        technician_notes: str = order.get("technician_notes") or "Заметок не было указано"
-        priority_code: int = order.get("priority")
-        priority: Priorities = Priorities(priority_code)
-        order_id: int = order.get("id")
-
-        order = Order(
-            client=client,
-            services=services_list,
-            worker=worker,
-            trouble_description=trouble_desc,
-            status=status,
-            accept_date=accept_date,
-            finish_date=finish_date,
-            device_type=device_type,
-            device_brand=device_brand,
-            device_model=device_model,
-            technician_notes=technician_notes,
-            priority=priority,
-            id=order_id
-        )
-
-        logger.debug("Loaded order: %s -> %s / %s", client.name, accept_date)
-
-        result.append(order)
+        result.append(o)
 
     return result
 
@@ -230,13 +240,19 @@ class OrderManager:
         if not data:
             return []
 
-        return await _get_orders(data)
+        return await _build_orders_list(data)
+
+    async def get_order(self, order_id: int) -> Order:
+        response = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("id", order_id).execute()
+        data = response.data[0]
+
+        return await _build_order(data)
 
     async def get_client_orders(self, client: Client) -> list[Order]:
         orders = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("clients.id", client.id).execute()
         data = orders.data
 
-        return await _get_orders(data)
+        return await _build_orders_list(data)
 
     async def select_order(self, order: Order, worker: Worker) -> bool:
         try:
@@ -272,10 +288,46 @@ class OrderManager:
         orders = await self.supabase.table("orders").select("*, clients(*), services(*)").is_("worker_id",
                                                                                               None).execute()
         data = orders.data
-        return await _get_orders(data)
+        return await _build_orders_list(data)
 
     async def get_workers_orders(self, worker: Worker) -> list[Order]:
         orders = await self.supabase.table("orders").select("*, clients(*), services(*), workers(*)").eq("worker_id",
                                                                                                          worker.id).execute()
         data = orders.data
-        return await _get_orders(data)
+        return await _build_orders_list(data)
+
+    async def init_orders_realtime(self, handler: Callable):
+        """
+        Создаёт канал для просмотра изменений в таблице с заказами и подписывается на него.
+
+        !!! Нужно подкрепить его циклом типа while True: await asyncio.sleep(1) иначе соединение упадёт !!!
+        :param handler: Функция с входным аргументом data: dict
+        """
+        await self.supabase.realtime.connect()
+
+        if not self.supabase.realtime.is_connected:
+            raise OrdersRealtimeConnectionError("Не удалось подключиться к realtime")
+
+        channel = self.supabase.channel("order_request_updates_and_inserts").on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="orders",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="orders",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="order_services",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="order_services",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        )
+
+        await channel.subscribe()

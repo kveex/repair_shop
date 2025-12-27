@@ -1,16 +1,18 @@
 import asyncio
+from typing import Optional
 
 from PySide6.QtWidgets import (QWidget, QStackedWidget,
                                QVBoxLayout, QPushButton,
                                QLabel, QDialog,
                                QHBoxLayout, QGridLayout)
+from realtime import RealtimePostgresChangesListenEvent
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
 from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox
 from PySide6.QtCore import Qt
 from qasync import asyncSlot
 
-from src.database import get_order_manager, get_service_manager
+from src.database import get_order_manager, get_service_manager, OrderManager
 from src.database.services.order import Order, priority_to_name, priority_to_color
 from src.database.services.client import ClientNotExistsError
 
@@ -34,7 +36,7 @@ class CashierScreen(QWidget):
 
         self.info = []
         self.stack_widget = stack_widget
-        self.order_manager = None
+        self.order_manager: Optional[OrderManager] = None
 
         main_layout = QVBoxLayout(self)
 
@@ -63,7 +65,31 @@ class CashierScreen(QWidget):
             service_name = order.get_service_names()
             service_price = order.get_full_price()
             service_price_str = f"{service_price}₽" if service_price else "Нет точной цены"
-            self.card_list.sync_card(
+            self.card_list.create_card(
+                client_name, service_name, order,
+                lambda _, o=order: self.on_card_press(o),
+                service_price_str
+            )
+
+    async def order_list_handler(self, data: dict):
+        order_id: int = data.get("record").get("id") or data.get("record").get("order_id")
+        table: str = data.get("table")
+        answer_type: RealtimePostgresChangesListenEvent = data.get("type")
+        order = await self.order_manager.get_order(order_id)
+
+        client_name = order.client.name
+        service_name = order.get_service_names()
+        service_price = order.get_full_price()
+        service_price_str = f"{service_price}₽" if service_price else "Нет точной цены"
+
+        if answer_type == RealtimePostgresChangesListenEvent.Insert and table == "orders":
+            self.card_list.create_card(
+                client_name, service_name, order,
+                lambda _, o=order: self.on_card_press(o),
+                service_price_str
+            )
+        else:
+            self.card_list.update_card(
                 client_name, service_name, order,
                 lambda _, o=order: self.on_card_press(o),
                 service_price_str
@@ -73,9 +99,10 @@ class CashierScreen(QWidget):
     async def on_show(self):
         self.order_manager = get_order_manager()
         await self.new_order_screen.fill_services_box()
+        await self.fill_cards()
+        await self.order_manager.init_orders_realtime(self.order_list_handler)
         while self.isVisible():
-            await self.fill_cards()
-            await asyncio.sleep(30)
+            await asyncio.sleep(1)
 
 class FullOrderInfo(QDialog):
     def __init__(self, order: Order):
