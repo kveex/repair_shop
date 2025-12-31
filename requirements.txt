@@ -1,8 +1,0 @@
-realtime
-pytest
-pyside6
-qasync
-qt-material
-supabase
-bcrypt
-dotenv

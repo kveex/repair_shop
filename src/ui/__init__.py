@@ -1,11 +1,12 @@
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Callable
 
 from PySide6.QtGui import QTextOption
+from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (QWidget, QPushButton, QLabel,
                                QGridLayout, QVBoxLayout, QScrollArea,
-                               QLineEdit, QTextEdit, QHBoxLayout, QCheckBox, QComboBox)
-from PySide6.QtCore import Qt
+                               QLineEdit, QTextEdit, QHBoxLayout, QCheckBox, QComboBox, QDialog, QSizePolicy, QFrame)
+from PySide6.QtCore import Qt, QTimer, QRect, QEvent, QObject, Signal, QSize
 
 from src.database.services.order import Order, priority_to_name
 from src.database.services.service import Service
@@ -269,7 +270,7 @@ class InfoBox(BoxWidget):
         layout.addWidget(self.value)
 
 class InputBox(BoxWidget):
-    def __init__(self, label_text: str, multi_line=False):
+    def __init__(self, label_text: str, multi_line=False, echo_mode: QLineEdit.EchoMode = QLineEdit.EchoMode.Normal):
         super().__init__(label_text)
         layout = self.get_layout()
 
@@ -278,6 +279,7 @@ class InputBox(BoxWidget):
             self.value_input.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         else:
             self.value_input = QLineEdit()
+            self.value_input.setEchoMode(echo_mode)
 
         layout.addWidget(self.value_input)
 
@@ -316,6 +318,128 @@ class PriorityInputBox(BoxWidget):
 
     def reset_index(self):
         self.priority_box.setCurrentIndex(0)
+
+
+class NotificationType(IntEnum):
+    SUCCESS = 0
+    WARNING = 1
+    ERROR = 2
+    NOTIFY = 3
+
+class _NotificationWidget(QDialog):
+    clicked = Signal()
+
+    def __init__(self, parent: QWidget, title: str, description: str, notification_type: NotificationType):
+        super().__init__(f=Qt.WindowType.Tool)
+        self.setParent(parent)
+        self.setMaximumSize(600, 70)
+        self.installEventFilter(self)
+
+        self.setObjectName("NotificationDialog")
+        self.setStyleSheet(
+            """
+                QDialog#NotificationDialog {
+                    border: 2px solid #8bc34a;
+                    border-radius: 5px;
+                }
+            """
+        )
+
+        icon_path: str = "src/ui/icons/"
+        match notification_type:
+            case NotificationType.NOTIFY:
+                icon_path += "notification_notice.svg"
+            case NotificationType.SUCCESS:
+                icon_path += "notification_success.svg"
+            case NotificationType.WARNING:
+                icon_path += "notification_warning.svg"
+            case NotificationType.ERROR:
+                icon_path += "notification_error.svg"
+
+        layout = QHBoxLayout(self)
+        text_layout = QVBoxLayout()
+
+        icon = QSvgWidget(icon_path)
+        icon.setFixedSize(54, 54)
+
+        title_label = QLabel(title)
+        title_label.setWordWrap(True)
+        description_label = QLabel(description)
+        description_label.setWordWrap(True)
+
+        text_layout.addWidget(title_label)
+        text_layout.addWidget(description_label)
+
+        layout.addWidget(icon)
+        layout.addLayout(text_layout)
+
+        self.show()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.MouseButtonPress:
+            self.clicked.emit()
+            return True
+        return super().eventFilter(obj, event)
+
+
+class NotificationManager(QObject):
+    def __init__(self, parent: QWidget):
+        super().__init__()
+        self.MARGIN = 5
+        self.GAP = 7
+        self.notification_parent = parent
+        self.notifications: list[_NotificationWidget] = []
+        self.notification_parent.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.notification_parent:
+            if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+                self.position_notifications()
+        return False
+
+    def position_notifications(self):
+        if not self.notifications:
+            return
+
+        parent_rect: QRect = self.notification_parent.geometry()
+
+        x = parent_rect.right() - self.MARGIN
+        y = parent_rect.bottom() - self.MARGIN
+
+        for n in reversed(self.notifications):
+            n.adjustSize()
+
+            new_x = x - n.width()
+            y = y - n.height()
+            n.move(new_x, y)
+
+            y = y - self.GAP
+
+    def delete_notification(self, notification: _NotificationWidget):
+        try:
+            self.notifications.remove(notification)
+        except ValueError:
+            pass
+        notification.accept()
+        self.position_notifications()
+
+    def show_notification(self, title: str, description: str, notification_type: NotificationType):
+        notification_type_to_duration = {
+            NotificationType.SUCCESS: 3000,
+            NotificationType.WARNING: 5000,
+            NotificationType.ERROR: 7000,
+            NotificationType.NOTIFY: 5000
+        }
+
+        notification: _NotificationWidget = _NotificationWidget(self.notification_parent, title, description,
+                                                                notification_type)
+        notification.clicked.connect(lambda n=notification: self.delete_notification(n))
+        self.notifications.append(notification)
+        self.position_notifications()
+        notification.show()
+        QTimer.singleShot(notification_type_to_duration[notification_type],
+                          lambda: self.delete_notification(notification))
+
 
 def check_errors(fields: list[QLineEdit], error_label: QLabel):
     has_error = False

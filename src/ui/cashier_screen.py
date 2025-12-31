@@ -3,13 +3,13 @@ from typing import Optional
 
 from PySide6.QtWidgets import (QWidget, QStackedWidget,
                                QVBoxLayout, QPushButton,
-                               QLabel, QDialog,
+                               QDialog,
                                QHBoxLayout, QGridLayout)
 from realtime import RealtimePostgresChangesListenEvent
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
-from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox
-from PySide6.QtCore import Qt
+from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox, \
+    NotificationManager, NotificationType
 from qasync import asyncSlot
 
 from src.database import get_order_manager, get_service_manager, OrderManager
@@ -37,6 +37,7 @@ class CashierScreen(QWidget):
         self.info = []
         self.stack_widget = stack_widget
         self.order_manager: Optional[OrderManager] = None
+        self.notification_manager: NotificationManager = NotificationManager(self)
 
         main_layout = QVBoxLayout(self)
 
@@ -47,7 +48,7 @@ class CashierScreen(QWidget):
 
         new_order_button = QPushButton()
         new_order_button.setText("Новый заказ")
-        new_order_button.clicked.connect(self.new_order_screen.open)
+        new_order_button.clicked.connect(self.new_order_screen.show)
 
         main_layout.addWidget(self.card_list)
         main_layout.addWidget(new_order_button)
@@ -94,6 +95,7 @@ class CashierScreen(QWidget):
                 lambda _, o=order: self.on_card_press(o),
                 service_price_str
             )
+            self.notification_manager.show_notification("Оповещение", f"Информация о заказе клиента {client_name} изменена", NotificationType.NOTIFY)
 
     @asyncSlot()
     async def on_show(self):
@@ -179,10 +181,11 @@ class FullOrderInfo(QDialog):
         main_layout.addLayout(right_layout)
         self.setLayout(main_layout)
 
-class NewOrder(QDialog):
+class NewOrder(QWidget):
     def __init__(self, parent: CashierScreen):
         super().__init__()
-        self.parent = parent
+        self.cashier_screen = parent
+        self.notification_manager = NotificationManager(self)
         main_layout = QHBoxLayout()
         left_layout = QVBoxLayout()
 
@@ -195,10 +198,6 @@ class NewOrder(QDialog):
         self.create_button.setEnabled(False)
 
         self.setWindowTitle("Новый заказ")
-        self.error_label = QLabel()
-        self.error_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.error_label.setWordWrap(True)
-        self.error_label.hide()
 
         self.client_name_box = InputBox("ФИО клиента:")
         self.client_name_box.hide()
@@ -213,7 +212,6 @@ class NewOrder(QDialog):
         self.trouble_description_box = InputBox("Описание проблемы:", multi_line=True)
         self.trouble_description_box.value_input.textChanged.connect(self.check_fields)
 
-        left_layout.addWidget(self.error_label)
         left_layout.addWidget(self.client_name_box)
         left_layout.addWidget(self.client_phone_box)
         left_layout.addWidget(self.client_address_box)
@@ -256,13 +254,11 @@ class NewOrder(QDialog):
             enabled = True if client_phone and trouble_desc and requested_services else False
         else:
             enabled = True if client_phone and client_name and trouble_desc and requested_services else False
-        self.error_label.hide()
         self.create_button.setEnabled(enabled)
 
     @asyncSlot()
     async def create_order(self):
         order_manager = get_order_manager()
-        error_msg: str = ""
         client_name: str = self.client_name_box.get_value()
         client_phone: str = self.client_phone_box.get_value()
         client_address: str = self.client_address_box.get_value()
@@ -276,11 +272,7 @@ class NewOrder(QDialog):
         try:
             client_phone = validate_phone(client_phone)
         except WrongPhoneCode and PhoneLengthError and PhoneValidationError as e:
-            error_msg = str(e)
-
-        if error_msg:
-            self.error_label.setText(error_msg)
-            self.error_label.show()
+            self.notification_manager.show_notification("Ошибка", str(e), NotificationType.ERROR)
             return
 
         try:
@@ -294,7 +286,7 @@ class NewOrder(QDialog):
                 priority=order_priority,
             )
         except ClientNotExistsError as e:
-            self.error_label.setText(str(e))
+            self.notification_manager.show_notification("Оповещение", str(e), NotificationType.NOTIFY)
             self.client_name_box.show()
             self.client_address_box.show()
             result = await order_manager.make_order_new_client(
@@ -311,7 +303,7 @@ class NewOrder(QDialog):
             created = result[1]
 
         if created:
-            self.error_label.setText("Заказ успешно создан!")
+            self.notification_manager.show_notification("Успех", "Заказ успешно создан!", NotificationType.SUCCESS)
             self.client_name_box.clear_input()
             self.client_phone_box.clear_input()
             self.client_address_box.clear_input()
@@ -324,7 +316,6 @@ class NewOrder(QDialog):
             self.client_name_box.hide()
             self.client_address_box.hide()
 
-        self.error_label.show()
         self.create_button.setEnabled(False)
 
-        await self.parent.fill_cards()
+        await self.cashier_screen.fill_cards()

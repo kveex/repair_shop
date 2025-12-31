@@ -11,11 +11,14 @@ from src.database import get_storage_manager, StorageManager
 from src.database.services.storage import StorageRequest, NotExistingCellError, Cell
 from src.ui import CardListWidget, InfoBox, InputBox
 from qasync import asyncSlot
+from notifications_test import NotificationManager, NotificationType
+
 
 class StoragerScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
         super().__init__()
         self.stack_widget = stack_widget
+        self.notification_manager = NotificationManager(self)
         self.storage_manager: Optional[StorageManager] = None
         self.storage_requests: list[StorageRequest] = []
         tab = QTabWidget()
@@ -95,6 +98,7 @@ class StoragerScreen(QWidget):
                 func=partial(self.on_request_card_press, request),
                 full_card_info=request
             )
+            self.notification_manager.show_notification("Новый запрос", f"Поступил запрос на {request.requested_item}", NotificationType.NOTIFY)
         else:
             self.request_list.update_card(
                 card_name=card_name,
@@ -131,6 +135,9 @@ class StoragerScreen(QWidget):
                 full_card_info=cell,
                 func=partial(self.on_cell_card_press, cell)
             )
+            self.notification_manager.show_notification("Изменение информации",
+                                                        f"Информация о ячейке {cell_id} изменена",
+                                                        NotificationType.NOTIFY)
 
     @asyncSlot()
     async def on_show(self):
