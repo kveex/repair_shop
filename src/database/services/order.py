@@ -1,5 +1,5 @@
 import asyncio
-from typing import Callable
+from typing import Callable, Optional
 
 from realtime import RealtimePostgresChangesListenEvent
 from supabase import AsyncClient
@@ -43,8 +43,8 @@ class OrdersRealtimeConnectionError(Exception): pass
 @dataclass(frozen=True, order=True)
 class Order:
     client: Client
-    services: list[Service] | None
-    worker: Worker | None
+    services: Optional[list[Service]]
+    worker: Optional[Worker]
     trouble_description: str
     status: OrderStatus
     accept_date: str
@@ -65,7 +65,7 @@ class Order:
         return self.worker == worker
 
     def is_finished(self) -> bool:
-        return self.finish_date == "Не завершён"
+        return self.finish_date != "Не завершён"
 
     def get_full_price(self) -> int | None:
         price: int = 0
@@ -84,6 +84,28 @@ class Order:
             return f"{first_service}+{service_count}" if service_count > 0 else first_service
         else:
             return ", ".join(service.name for service in self.services)
+
+    def get_provided_services(self) -> Optional[list[Service]]:
+        if not self.services: return None
+
+        result: list[Service] = []
+
+        for service in self.services:
+            if service.service_type == ServiceTypes.PROVIDED.value:
+                result.append(service)
+
+        return result
+
+    def get_requested_services(self) -> Optional[list[Service]]:
+        if not self.services: return None
+
+        result: list[Service] = []
+
+        for service in self.services:
+            if service.service_type == ServiceTypes.REQUESTED.value:
+                result.append(service)
+
+        return result
 
 async def _build_order(data: dict) -> Order:
     client_info = data.get("clients")
@@ -124,7 +146,7 @@ async def _build_order(data: dict) -> Order:
     device_type: str = data.get("device_type") or "Не указан"
     device_brand: str = data.get("device_brand") or "Не указан"
     device_model: str = data.get("device_model") or "Не указана"
-    technician_notes: str = data.get("technician_notes") or "Заметок не было указано"
+    technician_notes: str = data.get("technician_notes")
     priority_code: int = data.get("priority")
     priority: Priorities = Priorities(priority_code)
     order_id: int = data.get("id")
@@ -285,16 +307,25 @@ class OrderManager:
         return True
 
     async def get_not_taken_orders(self) -> list[Order]:
-        orders = await self.supabase.table("orders").select("*, clients(*), services(*)").is_("worker_id",
+        orders = await self.supabase.table("orders").select("*, clients(*), order_services(*, services(*))").is_("worker_id",
                                                                                               None).execute()
         data = orders.data
         return await _build_orders_list(data)
 
     async def get_workers_orders(self, worker: Worker) -> list[Order]:
-        orders = await self.supabase.table("orders").select("*, clients(*), services(*), workers(*)").eq("worker_id",
-                                                                                                         worker.id).execute()
+        orders = await (self.supabase.table("orders").select("*, clients(*), order_services(*, services(*)), workers(*)")
+                        .eq("worker_id", worker.id).execute())
         data = orders.data
         return await _build_orders_list(data)
+
+    async def update_order_technician_notes(self, order_id: int, technician_notes: str) -> bool:
+
+        response = await self.supabase.table("orders").update({"technician_notes": technician_notes}).eq("id", order_id).execute()
+
+        if not response.data:
+            return False
+
+        return True
 
     async def init_orders_realtime(self, handler: Callable):
         """
@@ -308,7 +339,7 @@ class OrderManager:
         if not self.supabase.realtime.is_connected:
             raise OrdersRealtimeConnectionError("Не удалось подключиться к realtime")
 
-        channel = self.supabase.channel("order_request_updates_and_inserts").on_postgres_changes(
+        channel = self.supabase.channel("order_updates_and_inserts").on_postgres_changes(
             event=RealtimePostgresChangesListenEvent.Update,
             schema="public",
             table="orders",
@@ -327,6 +358,16 @@ class OrderManager:
             event=RealtimePostgresChangesListenEvent.Insert,
             schema="public",
             table="order_services",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="order_requests",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="order_requests",
             callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
         )
 

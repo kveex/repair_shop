@@ -6,15 +6,16 @@ from PySide6.QtWidgets import (
 from qasync import asyncSlot
 
 from src.database.services.worker import WrongCredentialsError, Worker
-from src.ui import Screens, Roles, NotificationManager, NotificationType, InputBox
+from src.ui import Screens, Roles, InputBox
+from src.utils import NotificationManager, NotificationType
 from src.database import get_worker_manager
 
 class LoginScreen(QWidget):
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, stack_widget: QStackedWidget, notification_manager: NotificationManager):
         super().__init__()
         self.stack_widget = stack_widget
         self.setWindowTitle("Вход")
-        self.notification_manager = NotificationManager(self)
+        self.notification_manager = notification_manager
         main_layout = QHBoxLayout()
         layout = QVBoxLayout()
 
@@ -65,10 +66,15 @@ class LoginScreen(QWidget):
             self.setWindowTitle(target_screen.windowTitle())
             return
 
+        self.login_button.setEnabled(False)
+
         worker_manager = get_worker_manager()
 
         login = self.login_input_box.get_value()
         password = self.password_input_box.get_value()
+
+        self.login_input_box.clear_input()
+        self.password_input_box.clear_input()
 
         try:
             account = await worker_manager.login_worker(login, password)

@@ -9,13 +9,19 @@ class ServiceTypes(Enum):
     REQUESTED = "Запрошенная"
     PROVIDED = "Оказанная"
 
-@dataclass(frozen=True, order=True)
+@dataclass(order=True)
 class Service:
     name: str
     description: str
     price: int | None
-    service_type: ServiceTypes | None
+    service_type: ServiceTypes
     id: int
+
+    def is_provided(self) -> bool:
+        return self.service_type == ServiceTypes.PROVIDED.value
+
+    def is_requested(self) -> bool:
+        return self.service_type == ServiceTypes.REQUESTED.value
 
 class ServiceManager:
     def __init__(self, supabase: AsyncClient):
@@ -127,5 +133,23 @@ class ServiceManager:
             logger.error(str(e))
             return False
         return True
+
+    async def update_order_services(self, order_id: int, services: list[Service]) -> bool:
+        if not services: return False
+        for service in services:
+            if service is None: continue
+            info = {
+                "price": service.price,
+                "service_type": service.service_type.value
+            }
+
+            try:
+                response = await self.supabase.table("order_services").update(info).eq("service_id", service.id).eq("order_id", order_id).execute()
+                print(response.data)
+            except Exception as e:
+                logger.error(str(e))
+                return False
+        return True
+
 
 

@@ -1,9 +1,9 @@
-from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QStyleFactory
 from src.database import init_db
 import sys
 import asyncio
 from qasync import QEventLoop
-from qt_material import apply_stylesheet
+from qt_material import apply_stylesheet, QtStyleTools
 
 from src.ui.cashier_screen import CashierScreen
 from src.ui.login_screen import LoginScreen
@@ -11,9 +11,11 @@ from src.ui.manager_screen import ManagerScreen
 from src.ui.register_screen import RegisterScreen
 from src.ui.storager_screen import StoragerScreen
 from src.ui.technician_screen import TechnicianScreen
+from src.ui import MenuBar
+from utils import NotificationManager
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, QtStyleTools):
     def __init__(self, shutdown_event: asyncio.Event):  # Добавляем параметр
         super().__init__()
         self.shutdown_event = shutdown_event  # Сохраняем событие
@@ -23,11 +25,16 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
-        login_screen = LoginScreen(self.stack)
-        manager_screen = ManagerScreen(self.stack)
-        technician_screen = TechnicianScreen(self.stack)
-        storager_screen = StoragerScreen(self.stack)
-        cashier_screen = CashierScreen(self.stack)
+        self.notification_manager = NotificationManager(self)
+
+        self.bar = MenuBar(self.stack, self.notification_manager)
+        self.setMenuBar(self.bar)
+
+        login_screen = LoginScreen(self.stack, self.notification_manager)
+        manager_screen = ManagerScreen(self.notification_manager)
+        technician_screen = TechnicianScreen(self.notification_manager)
+        storager_screen = StoragerScreen(self.notification_manager)
+        cashier_screen = CashierScreen(self.notification_manager)
         register_screen = RegisterScreen(self.stack)
 
         self.stack.addWidget(login_screen)
@@ -47,10 +54,16 @@ class MainWindow(QMainWindow):
             1: "Панель управления менеджера",
             2: "Список заказов кассира",
             3: "Выбор заказов техника",
-            4: "Список ячеек и запросов"
+            4: "Список ячеек и запросов",
+            5: "Создание аккаунта"
         }
         if index in screen_to_name:
             self.setWindowTitle(screen_to_name[index])
+
+        if index == 0:
+            self.bar.logout_action.setEnabled(False)
+        else:
+            self.bar.logout_action.setEnabled(True)
 
     def closeEvent(self, event):
         """Переопределяем закрытие окна"""

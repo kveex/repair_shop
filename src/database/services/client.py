@@ -1,3 +1,5 @@
+from typing import Optional
+
 from supabase import AsyncClient
 from dataclasses import dataclass
 from logger_config import logger
@@ -11,7 +13,7 @@ class Client:
     name: str
     phone: str
     id: int
-    address: str | None = None
+    address: Optional[str] = None
 
 class ClientManager:
     def __init__(self, supabase: AsyncClient):

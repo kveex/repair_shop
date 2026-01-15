@@ -3,7 +3,7 @@ from functools import partial
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QStackedWidget, QVBoxLayout, QLabel, QTabWidget, QHBoxLayout, QDialog, \
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTabWidget, QHBoxLayout, QDialog, \
     QPushButton
 from realtime import RealtimePostgresChangesListenEvent
 
@@ -15,10 +15,9 @@ from notifications_test import NotificationManager, NotificationType
 
 
 class StoragerScreen(QWidget):
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, notification_manager: NotificationManager):
         super().__init__()
-        self.stack_widget = stack_widget
-        self.notification_manager = NotificationManager(self)
+        self.notification_manager = notification_manager
         self.storage_manager: Optional[StorageManager] = None
         self.storage_requests: list[StorageRequest] = []
         tab = QTabWidget()

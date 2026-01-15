@@ -1,15 +1,15 @@
 import asyncio
 from typing import Optional
 
-from PySide6.QtWidgets import (QWidget, QStackedWidget,
+from PySide6.QtWidgets import (QWidget,
                                QVBoxLayout, QPushButton,
                                QDialog,
                                QHBoxLayout, QGridLayout)
 from realtime import RealtimePostgresChangesListenEvent
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
-from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox, \
-    NotificationManager, NotificationType
+from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox
+from src.utils import NotificationManager, NotificationType
 from qasync import asyncSlot
 
 from src.database import get_order_manager, get_service_manager, OrderManager
@@ -31,13 +31,12 @@ class CashierScreen(QWidget):
         "Время завершения: "
     ]
 
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, notification_manager: NotificationManager):
         super().__init__()
 
         self.info = []
-        self.stack_widget = stack_widget
         self.order_manager: Optional[OrderManager] = None
-        self.notification_manager: NotificationManager = NotificationManager(self)
+        self.notification_manager = notification_manager
 
         main_layout = QVBoxLayout(self)
 
@@ -52,8 +51,6 @@ class CashierScreen(QWidget):
 
         main_layout.addWidget(self.card_list)
         main_layout.addWidget(new_order_button)
-
-        self.setLayout(main_layout)
 
     def on_card_press(self, order: Order):
         self.info_dialog = FullOrderInfo(order)

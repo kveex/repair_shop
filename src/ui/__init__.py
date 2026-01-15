@@ -1,19 +1,25 @@
 from enum import Enum, IntEnum
 from typing import Callable
 
-from PySide6.QtGui import QTextOption
-from PySide6.QtSvgWidgets import QSvgWidget
+from PySide6.QtGui import QTextOption, QAction
 from PySide6.QtWidgets import (QWidget, QPushButton, QLabel,
                                QGridLayout, QVBoxLayout, QScrollArea,
-                               QLineEdit, QTextEdit, QHBoxLayout, QCheckBox, QComboBox, QDialog, QSizePolicy, QFrame)
-from PySide6.QtCore import Qt, QTimer, QRect, QEvent, QObject, Signal, QSize
+                               QLineEdit, QTextEdit, QHBoxLayout,
+                               QCheckBox, QComboBox,
+                               QMenuBar, QStackedWidget)
 
+from PySide6.QtCore import Qt
+from qt_material import QtStyleTools
+
+from database.services.service import ServiceTypes
 from src.database.services.order import Order, priority_to_name
 from src.database.services.service import Service
 from src.database.services.worker import Worker
 from src.database.services.client import Client
+from utils import NotificationManager
 
-class Screens(Enum):
+
+class Screens(IntEnum):
     LOGIN_SCREEN = 0
     MANAGER_SCREEN = 1
     CASHIER_SCREEN = 2
@@ -21,14 +27,17 @@ class Screens(Enum):
     STORAGER_SCREEN = 4
     REGISTER_SCREEN = 5
 
+
 class Roles(Enum):
     MANAGER = "Менеджер"
     CASHIER = "Кассир"
     TECHNICIAN = "Техник"
     STORAGER = "Работник склада"
 
+
 class _CardWidget(QPushButton):
-    def __init__(self, name: str, desc: str, full_info: Client | Worker | Service | Order, help_str: str | None = None, help_desc: str | None = None):
+    def __init__(self, name: str, desc: str, full_info: Client | Worker | Service | Order, help_str: str | None = None,
+                 help_desc: str | None = None):
         super().__init__()
 
         self.info = full_info
@@ -55,7 +64,8 @@ class _CardWidget(QPushButton):
         self.setMaximumHeight(70)
         self.setMinimumHeight(50)
 
-    def update_card_info(self, name: str, desc: str, full_info: Client | Worker | Service | Order, help_str: str | None = None, help_desc: str | None = None):
+    def update_card_info(self, name: str, desc: str, full_info: Client | Worker | Service | Order,
+                         help_str: str | None = None, help_desc: str | None = None):
         self.info = full_info
         self.name_label.setText(name)
         self.desc_label.setText(desc)
@@ -64,6 +74,7 @@ class _CardWidget(QPushButton):
         if help_desc is not None:
             self.help_desc_label.setText(help_desc)
 
+
 class CardListWidget(QWidget):
     def __init__(self):
         super().__init__()
@@ -71,9 +82,9 @@ class CardListWidget(QWidget):
         main_layout = QVBoxLayout(self)
         self.cards: dict[int, _CardWidget] = {}
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scrollArea = QScrollArea()
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.container = QWidget()
         self.layout = QVBoxLayout(self.container)
@@ -84,10 +95,10 @@ class CardListWidget(QWidget):
         self.search.setPlaceholderText("Поиск")
         self.search.textChanged.connect(self.search_card)
 
-        self.scroll.setWidget(self.container)
+        self.scrollArea.setWidget(self.container)
 
         main_layout.addWidget(self.search)
-        main_layout.addWidget(self.scroll)
+        main_layout.addWidget(self.scrollArea)
 
         self.setLayout(main_layout)
 
@@ -104,7 +115,8 @@ class CardListWidget(QWidget):
             visible = any(q in str(value).lower() for value in info_dict.values())
             card.setVisible(visible)
 
-    def create_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
+    def create_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None,
+                    card_help_desc: str | None = None):
         card_id = full_card_info.id
         if not card_id in self.cards:
             card = _CardWidget(card_name, card_desc, full_card_info, card_help, card_help_desc)
@@ -118,7 +130,8 @@ class CardListWidget(QWidget):
             self.cards[card_id] = card
             self.layout.addWidget(card)
 
-    def update_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
+    def update_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None,
+                    card_help_desc: str | None = None):
         card_id = full_card_info.id
         if card_id in self.cards:
             self.cards[card_id].update_card_info(card_name, card_desc, full_card_info, card_help, card_help_desc)
@@ -130,12 +143,23 @@ class CardListWidget(QWidget):
 
             self.cards[card_id].clicked.connect(func)
 
-    def sync_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None, card_help_desc: str | None = None):
+    def sync_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None,
+                  card_help_desc: str | None = None):
         self.update_card(card_name, card_desc, full_card_info, func, card_help, card_help_desc)
         self.create_card(card_name, card_desc, full_card_info, func, card_help, card_help_desc)
 
+    def remove_card(self, card_id: int) -> None:
+        try:
+            if card_id in self.cards:
+                card = self.cards[card_id]
+                card.hide()
+                card.deleteLater()
+        except RuntimeError:
+            print(f"Card already deleted")
+            pass
+
     def clear_list(self):
-        cards = self.scroll.findChildren(_CardWidget)
+        cards = self.scrollArea.findChildren(_CardWidget)
         for card in cards:
             card.deleteLater()
 
@@ -144,6 +168,7 @@ class CardListWidget(QWidget):
             if card.info.id == card_id:
                 return card.info
         return None
+
 
 class BoxWidget(QWidget):
     def __init__(self, label_text: str):
@@ -159,25 +184,50 @@ class BoxWidget(QWidget):
     def get_layout(self) -> QVBoxLayout:
         return self.layout
 
+
 class ServiceInfoBox(BoxWidget):
     def __init__(self, label_text: str, service_list: list[Service], on_check: Callable = None):
         super().__init__(label_text)
+        self._empty_list_label = QLineEdit("Список пуст")
+        self._empty_list_label.setReadOnly(True)
+        self._empty_list_label.hide()
         layout = self.get_layout()
+        self._on_check = on_check
+        self.services: dict[int, ServiceBoxItem] = {}
         container = QWidget()
 
-        services_layout = QVBoxLayout(container)
-        services_layout.setSpacing(5)
-        services_layout.setContentsMargins(5, 5, 5, 5)
+        self.services_layout = QVBoxLayout(container)
+        self.services_layout.setSpacing(5)
+        self.services_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.update_list(service_list)
+
+        layout.addWidget(self._empty_list_label)
+        layout.addWidget(container)
+
+    def update_list(self, service_list: list[Service]):
+        self._remove_items()
+        self._empty_list_label.hide()
+        if not service_list:
+            self._empty_list_label.show()
+            return
 
         for service in service_list:
-            item = ServiceBoxItem(service, True, False, on_check)
-            services_layout.addWidget(item)
+            item = ServiceBoxItem(service, True, False, self._on_check)
+            self.services[service.id] = item
+            self.services_layout.addWidget(item)
 
-        layout.addWidget(container)
+    def _remove_items(self):
+        for service in self.services.values():
+            try:
+                service.deleteLater()
+            except RuntimeError:
+                pass
 
 class ServiceSelectBox(BoxWidget):
     def __init__(self, label_text: str):
         super().__init__(label_text)
+        self._is_provided: bool = False
         self.services: dict[int, ServiceBoxItem] = {}
         layout = self.get_layout()
         container = QWidget()
@@ -188,8 +238,12 @@ class ServiceSelectBox(BoxWidget):
 
         layout.addWidget(container)
 
-    def add_service(self, service: Service, uneditable_price: bool, on_check: Callable = None):
-        item = ServiceBoxItem(service, uneditable_price, True, on_check)
+    def add_service(self, service: Service, uneditable_price: bool, on_check: Callable = None, is_provided: bool = False, clickable: bool = True):
+        item = ServiceBoxItem(service, uneditable_price, clickable, on_check)
+        self._is_provided = is_provided
+        if service.id in self.services:
+            self.services[service.id].hide()
+            self.services[service.id].deleteLater()
         self.services[service.id] = item
         self.services_layout.addWidget(item)
 
@@ -198,14 +252,26 @@ class ServiceSelectBox(BoxWidget):
 
         for service in self.services.values():
             s = service.get_service_if_checked()
-            if not s is None:
-                result.append(s)
+
+            if s is not None:
+                s.price = service.get_service_price()
+                if self._is_provided:
+                    s.service_type = ServiceTypes.PROVIDED
+                    result.append(s)
+                else:
+                    result.append(s)
         return result
 
     def reset_checks(self):
         for service_item in self.services.values():
             if not service_item.service.name == "Диагностика":
                 service_item.uncheck()
+
+    def is_prices_set(self) -> bool:
+        for service in self.services.values():
+            if not service.get_service_price(): return False
+
+        return True
 
 class ServiceBoxItem(QWidget):
     def __init__(self, service: Service, uneditable_price: bool, clickable: bool, on_check: Callable | None):
@@ -219,23 +285,22 @@ class ServiceBoxItem(QWidget):
 
         self.check_box = None
         service_name = QLabel(service.name)
-        # service_name.setStyleSheet("background-color: #f0f0f0; padding: 10px")
         service_name.setToolTip(f"Описание: {service.description}")
-        service_price = QLineEdit()
-        price: str = f"{service.price}₽" if service.price else "Нет начальной"
-        service_price.setToolTip(f"Цена услуги: {price} | Тип услуги: {service.service_type}")
-        service_price.setText(price)
-        service_price.setMaxLength(15)
-        service_price.setReadOnly(uneditable_price)
+        self._service_price = QLineEdit()
+        price: str = f"{service.price}₽" if service.price else ""
+        self._service_price.setToolTip(f"Цена услуги: {price} | Тип услуги: {service.service_type}")
+        self._service_price.setText(price)
+        self._service_price.setMaxLength(15)
+        self._service_price.setReadOnly(uneditable_price)
 
         if clickable:
             self.check_box = QCheckBox()
-            if not on_check is None:
+            if on_check is not None:
                 self.check_box.checkStateChanged.connect(on_check)
 
         if self.check_box: layout.addWidget(self.check_box)
         layout.addWidget(service_name)
-        layout.addWidget(service_price)
+        layout.addWidget(self._service_price)
 
     def is_checked(self) -> bool:
         if self.check_box:
@@ -246,10 +311,20 @@ class ServiceBoxItem(QWidget):
         if self.check_box:
             self.check_box.setChecked(False)
 
+    def check(self):
+        if self.check_box:
+            self.check_box.setChecked(True)
+
     def get_service_if_checked(self) -> Service | None:
+        if not self.check_box: return None
         if self.check_box.isChecked():
             return self.service
         return None
+
+    def get_service_price(self) -> int | None:
+        cleaned = self._service_price.text().removesuffix("₽")
+        result: int = int(cleaned) if cleaned != "" else None
+        return result
 
 class InfoBox(BoxWidget):
     def __init__(self, label_text: str, value_text: str, hex_color: str = None, multi_line=False):
@@ -268,6 +343,10 @@ class InfoBox(BoxWidget):
             self.value.setStyleSheet(f"QLineEdit, QTextEdit {{background-color: {hex_color}}}")
 
         layout.addWidget(self.value)
+
+    def set_value(self, value: str):
+        self.value.setText(value)
+
 
 class InputBox(BoxWidget):
     def __init__(self, label_text: str, multi_line=False, echo_mode: QLineEdit.EchoMode = QLineEdit.EchoMode.Normal):
@@ -302,6 +381,7 @@ class InputBox(BoxWidget):
     def clear_input(self):
         self.value_input.setText("")
 
+
 class PriorityInputBox(BoxWidget):
     def __init__(self, label_text: str):
         super().__init__(label_text)
@@ -320,169 +400,25 @@ class PriorityInputBox(BoxWidget):
         self.priority_box.setCurrentIndex(0)
 
 
-class NotificationType(IntEnum):
-    SUCCESS = 0
-    WARNING = 1
-    ERROR = 2
-    NOTIFY = 3
+class MenuBar(QMenuBar, QtStyleTools):
+    def __init__(self, stack: QStackedWidget, notification_manager: NotificationManager):
+        super().__init__()
+        account_menu = self.addMenu("Аккаунт")
 
-class _NotificationWidget(QDialog):
-    clicked = Signal()
+        self.logout_action = QAction("Выйти", self)
+        self.logout_action.triggered.connect(lambda: stack.setCurrentIndex(0))
+        self.logout_action.setEnabled(False)
 
-    def __init__(self, parent: QWidget, title: str, description: str, notification_type: NotificationType):
-        super().__init__(f=Qt.WindowType.Tool)
-        self.setParent(parent)
-        self.setMaximumSize(600, 70)
-        self.installEventFilter(self)
-
-        self.setObjectName("NotificationDialog")
-        self.setStyleSheet(
-            """
-                QDialog#NotificationDialog {
-                    border: 2px solid #8bc34a;
-                    border-radius: 5px;
-                }
-            """
+        notifications_menu = self.addMenu("Уведомления (0)")
+        notification_manager.notification_amount_changed.connect(
+            lambda amount: notifications_menu.setTitle(f"Уведомлений ({amount})")
         )
 
-        icon_path: str = "src/ui/icons/"
-        match notification_type:
-            case NotificationType.NOTIFY:
-                icon_path += "notification_notice.svg"
-            case NotificationType.SUCCESS:
-                icon_path += "notification_success.svg"
-            case NotificationType.WARNING:
-                icon_path += "notification_warning.svg"
-            case NotificationType.ERROR:
-                icon_path += "notification_error.svg"
+        self._show_notifications_action = QAction("Все уведомления", self)
+        self._show_notifications_action.triggered.connect(notification_manager.show_all_notifications)
+        self._clear_notifications_action = QAction("Очистить уведомления", self)
+        self._clear_notifications_action.triggered.connect(notification_manager.delete_all_notifications)
 
-        layout = QHBoxLayout(self)
-        text_layout = QVBoxLayout()
-
-        icon = QSvgWidget(icon_path)
-        icon.setFixedSize(54, 54)
-
-        title_label = QLabel(title)
-        title_label.setWordWrap(True)
-        description_label = QLabel(description)
-        description_label.setWordWrap(True)
-
-        text_layout.addWidget(title_label)
-        text_layout.addWidget(description_label)
-
-        layout.addWidget(icon)
-        layout.addLayout(text_layout)
-
-        self.show()
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.MouseButtonPress:
-            self.clicked.emit()
-            return True
-        return super().eventFilter(obj, event)
-
-
-class NotificationManager(QObject):
-    def __init__(self, parent: QWidget):
-        super().__init__()
-        self.MARGIN = 5
-        self.GAP = 7
-        self.notification_parent = parent
-        self.notifications: list[_NotificationWidget] = []
-        self.notification_parent.installEventFilter(self)
-
-    def eventFilter(self, obj, event) -> bool:
-        if obj is self.notification_parent:
-            if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
-                self.position_notifications()
-        return False
-
-    def position_notifications(self):
-        if not self.notifications:
-            return
-
-        parent_rect: QRect = self.notification_parent.geometry()
-
-        x = parent_rect.right() - self.MARGIN
-        y = parent_rect.bottom() - self.MARGIN
-
-        for n in reversed(self.notifications):
-            n.adjustSize()
-
-            new_x = x - n.width()
-            y = y - n.height()
-            n.move(new_x, y)
-
-            y = y - self.GAP
-
-    def delete_notification(self, notification: _NotificationWidget):
-        try:
-            self.notifications.remove(notification)
-        except ValueError:
-            pass
-        notification.accept()
-        self.position_notifications()
-
-    def show_notification(self, title: str, description: str, notification_type: NotificationType):
-        notification_type_to_duration = {
-            NotificationType.SUCCESS: 3000,
-            NotificationType.WARNING: 5000,
-            NotificationType.ERROR: 7000,
-            NotificationType.NOTIFY: 5000
-        }
-
-        notification: _NotificationWidget = _NotificationWidget(self.notification_parent, title, description,
-                                                                notification_type)
-        notification.clicked.connect(lambda n=notification: self.delete_notification(n))
-        self.notifications.append(notification)
-        self.position_notifications()
-        notification.show()
-        QTimer.singleShot(notification_type_to_duration[notification_type],
-                          lambda: self.delete_notification(notification))
-
-
-def check_errors(fields: list[QLineEdit], error_label: QLabel):
-    has_error = False
-
-    for field in fields:
-        if hasattr(field, "toPlainText"):
-            if not field.toPlainText().strip():
-                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
-                has_error = True
-
-        elif not field.text().strip():
-            field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
-            has_error = True
-        else:
-            field.setStyleSheet("")
-
-    if has_error:
-        error_label.setText("Все поля должны быть заполнены!")
-        error_label.show()
-        return
-
-#Переделать этот метод полностью
-async def check_empty_fields(fields: list[QLineEdit], error_label: QLabel):
-    has_error = False
-
-    # if not error_label.isHidden():
-    #     raise ValueError("Error label needs to be hidden first!")
-
-    for field in fields:
-        if hasattr(field, "toPlainText"):
-            if not field.toPlainText().strip():
-                field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
-                has_error = True
-
-        elif not field.text().strip():
-            field.setStyleSheet("border: 2px solid red; border-radius: 5px;")  # красная граница
-            has_error = True
-        else:
-            field.setStyleSheet("")
-            error_label.setStyleSheet("")
-
-    if has_error:
-        error_label.setText("Эти поля должны быть заполнены!")
-        error_label.setStyleSheet("color: red")
-        error_label.show()
-    return has_error
+        account_menu.addAction(self.logout_action)
+        notifications_menu.addAction(self._show_notifications_action)
+        notifications_menu.addAction(self._clear_notifications_action)
