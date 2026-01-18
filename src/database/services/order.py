@@ -67,6 +67,7 @@ class Order:
         return self.finish_date != "Не завершён"
 
     def get_full_price(self) -> int | None:
+        if not self.services: return None
         price: int = 0
         for service in self.services:
             if not service.price: return None
@@ -265,6 +266,9 @@ class OrderManager:
 
     async def get_order(self, order_id: int) -> Order:
         response = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("id", order_id).execute()
+        if not response.data:
+            raise ValueError(f"Заказ с id [{order_id}] не найден")
+
         data = response.data[0]
 
         return await _build_order(data)
@@ -277,7 +281,7 @@ class OrderManager:
 
     async def select_order(self, order: Order, worker: Worker) -> bool:
         try:
-            order = await self.supabase.table("orders").update({"worker_id": worker.id, "status": "В работе"}).eq("id",
+            response = await self.supabase.table("orders").update({"worker_id": worker.id, "status": "В работе"}).eq("id",
                                                                                                                   order.id).execute()
         except Exception as e:
             msg = str(e)
@@ -287,7 +291,7 @@ class OrderManager:
                 logger.error(msg)
                 return False
 
-        if not order:
+        if not response.data:
             raise ValueError(f"Заказ с ID = {order.id} не был найден")
 
         return True

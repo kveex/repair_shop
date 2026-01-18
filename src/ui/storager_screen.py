@@ -77,7 +77,9 @@ class StoragerScreen(QWidget):
             )
 
     async def handle_request_cards(self, data: dict):
-        request_id = data.get("old_record").get("id")
+        record = data.get("record") or data.get("old_record")
+        if not record: return
+        request_id = record.get("id")
         answer_type: RealtimePostgresChangesListenEvent = data.get("type")
         request = await self.storage_manager.get_request(request_id)
 

@@ -217,6 +217,7 @@ class TechnicianScreen(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         self.order_manager: Optional[OrderManager] = None
+        self.storage_manager: Optional[StorageManager] = None
         self.stack = QStackedWidget()
         self.order: Optional[Order] = None
         self.not_taken_orders: list[Order] = []
@@ -235,13 +236,13 @@ class TechnicianScreen(QWidget):
     @asyncSlot()
     async def on_show(self, worker: Worker):
         self.order_manager = db.get_order_manager()
-        storage_manager = db.get_storage_manager()
+        self.storage_manager = db.get_storage_manager()
         worker_orders: list[Order] = await self.order_manager.get_workers_orders(worker)
 
         if worker_orders:
             for order in worker_orders:
                 if order.is_finished(): continue
-                self._selected_order_ui.set_managers(self.order_manager, storage_manager)
+                self._selected_order_ui.set_managers(self.order_manager, self.storage_manager)
                 self._selected_order_ui.update_info(order)
                 self.stack.setCurrentWidget(self._selected_order_ui)
                 await self._selected_order_ui.start_realtime()
@@ -254,8 +255,10 @@ class TechnicianScreen(QWidget):
             await self._order_selection_ui.start_realtime()
 
     def _switch_to_order(self, order: Order) -> None:
+        self._selected_order_ui.set_managers(self.order_manager, self.storage_manager)
         self._selected_order_ui.update_info(order)
         self.stack.setCurrentWidget(self._selected_order_ui)
+        self._selected_order_ui.start_realtime()
 
 class GetOrderDialog(QDialog):
     def __init__(self, order: Order):

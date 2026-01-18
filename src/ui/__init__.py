@@ -151,7 +151,7 @@ class CardListWidget(QWidget):
     def remove_card(self, card_id: int) -> None:
         try:
             if card_id in self.cards:
-                card = self.cards[card_id]
+                card = self.cards.pop(card_id)
                 card.hide()
                 card.deleteLater()
         except RuntimeError:
@@ -162,6 +162,7 @@ class CardListWidget(QWidget):
         cards = self.scrollArea.findChildren(_CardWidget)
         for card in cards:
             card.deleteLater()
+        self.cards.clear()
 
     def get_card_full_info(self, card_id: int):
         for card in self.cards.values():

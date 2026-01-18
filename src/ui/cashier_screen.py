@@ -287,6 +287,7 @@ class NewOrder(QWidget):
                 self.notification_manager.show_notification("Оповещение", str(e), NotificationType.NOTIFY)
                 self.client_name_box.show()
                 self.client_address_box.show()
+                self.check_fields()
                 return
         else:
             result = await order_manager.make_order_new_client(

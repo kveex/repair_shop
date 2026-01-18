@@ -77,7 +77,7 @@ class WorkerManager:
         if not worker_info:
             raise WorkerNotExistsError(f"Аккаунт с ID {worker_id} не найден, так как его не существует")
 
-        logger.info(f"Аккаунту '{worker_info[0]["name"]}' присвоена роль '{new_role}')")
+        logger.info(f"Аккаунту '{worker_info[0]['name']}' присвоена роль '{new_role}'")
         return True
 
     async def get_all_workers(self) -> list[Worker]:
