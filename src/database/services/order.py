@@ -12,7 +12,6 @@ from src.database.services.service import Service, ServiceTypes, ServiceManager
 from src.database.services.worker import Worker
 from src.database.services.client import ClientNotExistsError, Client, ClientManager
 
-now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
 class OrderStatus(Enum):
     WAITING = "Ожидание"
@@ -57,7 +56,7 @@ class Order:
     id: int
 
     def is_taken(self) -> bool:
-        return self.worker is None
+        return self.worker is not None
 
     def is_taken_by(self, worker: Worker) -> bool:
         if self.worker is None:
@@ -239,7 +238,7 @@ class OrderManager:
                 "device_type": device_type,
                 "device_brand": device_brand,
                 "device_model": device_model,
-                "accept_date": now_date,
+                "accept_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
                 "priority": priority
             }).execute()
             order_id = response.data[0].get("id")
@@ -293,9 +292,9 @@ class OrderManager:
 
         return True
 
-    def finish_order(self, order_id: int) -> bool:
+    async def finish_order(self, order_id: int) -> bool:
         try:
-            self.supabase.table("orders").update({"status": "Завершен", "finish_date": now_date}).eq("id",
+            await self.supabase.table("orders").update({"status": "Завершен", "finish_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S")}).eq("id",
                                                                                                      order_id).execute()
         except Exception as e:
             msg = str(e)

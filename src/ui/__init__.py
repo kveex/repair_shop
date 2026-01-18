@@ -69,7 +69,7 @@ class _CardWidget(QPushButton):
         self.info = full_info
         self.name_label.setText(name)
         self.desc_label.setText(desc)
-        if help is not None:
+        if help_str is not None:
             self.help_label.setText(help_str)
         if help_desc is not None:
             self.help_desc_label.setText(help_desc)
@@ -216,6 +216,9 @@ class ServiceInfoBox(BoxWidget):
             item = ServiceBoxItem(service, True, False, self._on_check)
             self.services[service.id] = item
             self.services_layout.addWidget(item)
+
+    def is_empty(self) -> bool:
+        return self._empty_list_label.isVisible()
 
     def _remove_items(self):
         for service in self.services.values():

@@ -268,24 +268,27 @@ class NewOrder(QWidget):
 
         try:
             client_phone = validate_phone(client_phone)
-        except WrongPhoneCode and PhoneLengthError and PhoneValidationError as e:
+        except (WrongPhoneCode, PhoneLengthError, PhoneValidationError) as e:
             self.notification_manager.show_notification("Ошибка", str(e), NotificationType.ERROR)
             return
 
-        try:
-            created: bool = await order_manager.make_order(
-                client_phone=client_phone,
-                trouble_description=trouble_desc,
-                device_type=device_type,
-                device_brand=device_brand,
-                device_model=device_model,
-                requested_services=requested_services,
-                priority=order_priority,
-            )
-        except ClientNotExistsError as e:
-            self.notification_manager.show_notification("Оповещение", str(e), NotificationType.NOTIFY)
-            self.client_name_box.show()
-            self.client_address_box.show()
+        if self.client_name_box.isHidden():
+            try:
+                created = await order_manager.make_order(
+                    client_phone=client_phone,
+                    trouble_description=trouble_desc,
+                    device_type=device_type,
+                    device_brand=device_brand,
+                    device_model=device_model,
+                    requested_services=requested_services,
+                    priority=order_priority,
+                )
+            except ClientNotExistsError as e:
+                self.notification_manager.show_notification("Оповещение", str(e), NotificationType.NOTIFY)
+                self.client_name_box.show()
+                self.client_address_box.show()
+                return
+        else:
             result = await order_manager.make_order_new_client(
                 client_name,
                 client_phone,

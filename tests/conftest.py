@@ -1,19 +1,22 @@
-# tests/conftest.py
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 import pytest
 
 def make_chain(data=None, exc: Exception | None = None):
-    """Mock цепочки .table(...).select(...).eq(...).insert(...).execute()"""
+    """Mock цепочки .table(...).select(...).eq(...).insert(...).execute()
+
+    execute() — AsyncMock, чтобы его можно было await'ить в async-тестах.
+    """
     chain = MagicMock()
-    # методы fluent API, которые часто используются — все возвращают тот же chain
+    # методы fluent API — возвращают тот же chain
     for method in ("select", "eq", "limit", "insert", "update", "delete", "order", "returning"):
         getattr(chain, method).return_value = chain
 
+    # Сделать execute awaitable
     if exc:
-        chain.execute.side_effect = exc
+        chain.execute = AsyncMock(side_effect=exc)
     else:
-        chain.execute.return_value = SimpleNamespace(data=data)
+        chain.execute = AsyncMock(return_value=SimpleNamespace(data=data))
 
     return chain
 

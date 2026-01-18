@@ -12,7 +12,7 @@ from src.ui.register_screen import RegisterScreen
 from src.ui.storager_screen import StoragerScreen
 from src.ui.technician_screen import TechnicianScreen
 from src.ui import MenuBar
-from utils import NotificationManager
+from src.utils import NotificationManager
 
 
 class MainWindow(QMainWindow, QtStyleTools):

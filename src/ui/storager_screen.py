@@ -11,7 +11,7 @@ from src.database import get_storage_manager, StorageManager
 from src.database.services.storage import StorageRequest, NotExistingCellError, Cell
 from src.ui import CardListWidget, InfoBox, InputBox
 from qasync import asyncSlot
-from notifications_test import NotificationManager, NotificationType
+from src.utils import NotificationManager, NotificationType
 
 
 class StoragerScreen(QWidget):

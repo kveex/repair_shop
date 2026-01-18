@@ -61,9 +61,9 @@ class WorkerManager:
         worker = Worker(name=name, role="Не назначена", id=data["id"])
         return worker
 
-    def change_role(self, worker_id: int, new_role: str) -> bool:
+    async def change_role(self, worker_id: int, new_role: str) -> bool:
         try:
-            worker_info = self.supabase.table("workers").update({"role": new_role}).eq("id", worker_id).execute().data
+            response = await self.supabase.table("workers").update({"role": new_role}).eq("id", worker_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -72,14 +72,18 @@ class WorkerManager:
                 logger.error(msg)
                 return False
 
+        worker_info: list = response.data
+
         if not worker_info:
             raise WorkerNotExistsError(f"Аккаунт с ID {worker_id} не найден, так как его не существует")
 
         logger.info(f"Аккаунту '{worker_info[0]["name"]}' присвоена роль '{new_role}')")
         return True
 
-    def get_all_workers(self) -> list[Worker]:
-        workers: list = self.supabase.table("workers").select("*").execute().data
+    async def get_all_workers(self) -> list[Worker]:
+        response = await self.supabase.table("workers").select("*").execute()
+
+        workers: list = response.data
 
         if not workers:
             raise WorkerNotExistsError("В базе данных нет аккаунтов")
@@ -98,9 +102,9 @@ class WorkerManager:
 
         return result
 
-    def get_worker(self, worker_id: int) -> Worker | None:
+    async def get_worker(self, worker_id: int) -> Worker | None:
         try:
-            worker_info: list = self.supabase.table("workers").select("*").eq("id", worker_id).execute().data
+            response = await self.supabase.table("workers").select("*").eq("id", worker_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -109,21 +113,23 @@ class WorkerManager:
                 logger.error(msg)
                 return None
 
+        worker_info: list = response.data
+
         if not worker_info:
             raise WorkerNotExistsError(f"Аккаунт с ID {worker_id} не найден, так как его не существует")
 
         name: str = worker_info[0]["name"]
-        job: str = worker_info[0]["job"]
+        role: str = worker_info[0]["role"]
         a_id: int = worker_info[0]["id"]
 
-        logger.info(f"ID: {a_id} | Имя: {name} | Роль: {job}")
-        worker = Worker(name=name, role=job, id=a_id)
+        logger.info(f"ID: {a_id} | Имя: {name} | Роль: {role}")
+        worker = Worker(name=name, role=role, id=a_id)
 
         return worker
 
-    def delete_worker(self, worker_id: int) -> bool:
+    async def delete_worker(self, worker_id: int) -> bool:
         try:
-            response = self.supabase.table("workers").delete().eq("id", worker_id).execute().data
+            response = await self.supabase.table("workers").delete().eq("id", worker_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -131,8 +137,8 @@ class WorkerManager:
             else:
                 logger.error(msg)
                 return False
-
-        if not response:
+        data = response.data
+        if not data:
             raise WorkerNotExistsError(f"Аккаунт с ID {worker_id} не удален, так как его не существует")
 
         logger.info(f"Аккаунт с ID {worker_id} успешно удален")

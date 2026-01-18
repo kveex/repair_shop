@@ -9,8 +9,7 @@ from realtime import RealtimePostgresChangesListenEvent
 import src.database as db
 from qasync import asyncSlot
 
-from database import StorageManager, services
-from database.services.service import ServiceTypes
+from database import StorageManager
 from src.database.services.order import Order, OrderManager
 from src.database.services.worker import Worker
 from src.ui import CardListWidget, ServiceSelectBox, ServiceInfoBox, InfoBox, InputBox
@@ -36,8 +35,8 @@ class _OrderSelectionListWidget(QWidget):
         self._get_order_dialog.open()
 
     @asyncSlot()
-    async def _select_order(self, order: Order) -> None:
-        await self._order_manager.select_order(order, self._worker)
+    async def _select_order(self, order: Order, worker: Worker) -> None:
+        await self._order_manager.select_order(order, worker)
         self.order_selected.emit(order)
 
     def set_managers(self, order_manager: OrderManager) -> None:
@@ -158,7 +157,7 @@ class _SelectedOrderWidget(QWidget):
 
         services_updated: bool = await service_manager.update_order_services(self._order_id, self.provided_services_box.get_checked_services())
 
-        if not services_updated:
+        if not services_updated and not self.requested_services_box.is_empty():
             self._notification_manager.show_notification("Предупреждение", "Не было отмечено ни одной выполненной услуги!", NotificationType.WARNING)
 
     def update_info(self, order: Order):
