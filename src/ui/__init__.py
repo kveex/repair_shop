@@ -138,7 +138,7 @@ class CardListWidget(QWidget):
 
             try:
                 self.cards[card_id].clicked.disconnect()
-            except KeyError:
+            except (KeyError, RuntimeError, TypeError):
                 pass
 
             self.cards[card_id].clicked.connect(func)

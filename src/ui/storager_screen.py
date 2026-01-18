@@ -111,7 +111,9 @@ class StoragerScreen(QWidget):
             )
 
     async def handle_cell_cards(self, data: dict):
-        cell_id: int = data.get("record").get("id")
+        record = data.get("record") or data.get("old_record")
+        if not record: return
+        cell_id: int = record.get("id")
         answer_type: RealtimePostgresChangesListenEvent = data.get("type")
         cell = await self.storage_manager.get_cell(cell_id)
 
