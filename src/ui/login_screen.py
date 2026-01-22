@@ -1,46 +1,52 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit,
     QPushButton, QStackedWidget, QSpacerItem,
-    QSizePolicy, QLabel
+    QSizePolicy, QHBoxLayout
 )
-from PySide6.QtCore import Qt
+from qasync import asyncSlot
 
-from src.database import account_manager
-from src.ui import Screens, Roles, check_errors
-
+from src.database.services.worker import WrongCredentialsError, Worker
+from src.ui import Screens, Roles, InputBox
+from src.utils import NotificationManager, NotificationType
+from src.database import get_worker_manager
 
 class LoginScreen(QWidget):
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, stack_widget: QStackedWidget, notification_manager: NotificationManager):
         super().__init__()
         self.stack_widget = stack_widget
         self.setWindowTitle("Вход")
+        self.notification_manager = notification_manager
+        main_layout = QHBoxLayout()
         layout = QVBoxLayout()
 
-        self.error_label = QLabel("Все поля должны быть заполнены!")
-        self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.error_label.hide()
+        self.login_input_box = InputBox("Логин")
+        self.login_input_box.value_input.textChanged.connect(self.check_fields)
 
-        self.login_input = QLineEdit()
-        self.login_input.setPlaceholderText("Логин")
+        self.password_input_box = InputBox("Пароль", echo_mode=QLineEdit.EchoMode.Password)
+        self.password_input_box.value_input.textChanged.connect(self.check_fields)
 
-        self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Пароль")
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.login_button = QPushButton("Войти")
+        self.login_button.clicked.connect(self.login)
+        self.login_button.setEnabled(False)
 
-        login_button = QPushButton("Войти")
-        login_button.clicked.connect(self.login)
+        layout.addStretch(1)
+        layout.addWidget(self.login_input_box)
+        layout.addWidget(self.password_input_box)
+        layout.addWidget(self.login_button)
+        layout.addStretch(1)
 
-        layout.addWidget(self.error_label)
-        layout.addWidget(self.login_input)
-        layout.addWidget(self.password_input)
-        layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Policy.Expanding))
-        layout.addWidget(login_button)
+        main_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
+        main_layout.addLayout(layout)
+        main_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
 
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
-    def login(self):
-        check_errors([self.login_input, self.password_input], self.error_label)
-        debug: bool = True
+    def check_fields(self):
+        if self.login_input_box.get_value() and self.password_input_box.get_value():
+            self.login_button.setEnabled(True)
+
+    @asyncSlot()
+    async def login(self):
         role_to_screen = {
             Roles.MANAGER.value: Screens.MANAGER_SCREEN.value,
             Roles.CASHIER.value: Screens.CASHIER_SCREEN.value,
@@ -48,23 +54,41 @@ class LoginScreen(QWidget):
             Roles.STORAGER.value: Screens.STORAGER_SCREEN.value
         }
 
+        debug: bool = False
         if debug:
-            role = "Кассир"
+            role = "Техник"
             screen_index = role_to_screen[role]
             target_screen = self.stack_widget.widget(screen_index)
 
             if hasattr(target_screen, "on_show"):
-                target_screen.on_show()
+                target_screen.on_show(Worker("a", role, 1))
             self.stack_widget.setCurrentIndex(screen_index)
             self.setWindowTitle(target_screen.windowTitle())
             return
 
-        role = account_manager.login_account(self.login_input.text(), self.password_input.text())
+        self.login_button.setEnabled(False)
+
+        worker_manager = get_worker_manager()
+
+        login = self.login_input_box.get_value()
+        password = self.password_input_box.get_value()
+
+        self.login_input_box.clear_input()
+        self.password_input_box.clear_input()
+
+        try:
+            account = await worker_manager.login_worker(login, password)
+        except WrongCredentialsError:
+            self.notification_manager.show_notification("Ошибка!", "Неверный логин или пароль", NotificationType.ERROR)
+            return
+
+        role: str = account.role
 
         if role in role_to_screen:
             screen_index = role_to_screen[role]
             target_screen = self.stack_widget.widget(screen_index)
 
-            if hasattr(target_screen, "on_show"):
-                target_screen.on_show()
             self.stack_widget.setCurrentIndex(screen_index)
+
+            if hasattr(target_screen, "on_show"):
+                await target_screen.on_show(account)

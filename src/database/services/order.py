@@ -1,161 +1,305 @@
-from supabase import Client
+import asyncio
+from typing import Callable, Optional
+
+from realtime import RealtimePostgresChangesListenEvent
+from supabase import AsyncClient
 from datetime import datetime
 from logger_config import logger
+from dataclasses import dataclass
+from enum import IntEnum, Enum
 
-from src.database.services.service import ServiceManager, ServiceNotExistsError
-from src.database.services.account import AccountManager
-from src.database.services.client import ClientManager, ClientNotExistsError
+from src.database.services.service import Service, ServiceTypes, ServiceManager
+from src.database.services.worker import Worker
+from src.database.services.client import ClientNotExistsError, Client, ClientManager
 
-now_date: str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+class OrderStatus(Enum):
+    WAITING = "Ожидание"
+    IN_PROGRESS = "В работе"
+    STOPPED = "Отложено"
+    FINISHED = "Завершено"
+    REJECTED = "Отказ"
+
+class Priorities(IntEnum):
+    NORMAL = 0
+    HIGH = 1
+    EMERGENT = 2
+
+priority_to_name = {
+    Priorities.NORMAL: "Обычный",
+    Priorities.HIGH: "Высокий",
+    Priorities.EMERGENT: "Срочный"
+}
+
+priority_to_color = {
+    Priorities.NORMAL: "",
+    Priorities.HIGH: "#f2b02b",
+    Priorities.EMERGENT: "#f2352b"
+}
+
+class OrdersRealtimeConnectionError(Exception): pass
+
+@dataclass(frozen=True, order=True)
+class Order:
+    client: Client
+    services: Optional[list[Service]]
+    worker: Optional[Worker]
+    trouble_description: str
+    status: OrderStatus
+    accept_date: str
+    finish_date: str
+    device_type: str
+    device_brand: str
+    device_model: str
+    technician_notes: str
+    priority: Priorities
+    id: int
+
+    def is_taken(self) -> bool:
+        return self.worker is not None
+
+    def is_taken_by(self, worker: Worker) -> bool:
+        if self.worker is None:
+            return False
+        return self.worker == worker
+
+    def is_finished(self) -> bool:
+        return self.finish_date != "Не завершён"
+
+    def get_full_price(self) -> int | None:
+        if not self.services: return None
+        price: int = 0
+        for service in self.services:
+            if not service.price: return None
+            price += service.price
+        return price
+
+    def get_service_names(self, short: bool = True) -> str:
+        if not self.services:
+            return "Услуг нет"
+
+        if short:
+            first_service = self.services[0].name
+            service_count = len(self.services) - 1
+            return f"{first_service}+{service_count}" if service_count > 0 else first_service
+        else:
+            return ", ".join(service.name for service in self.services)
+
+    def get_provided_services(self) -> Optional[list[Service]]:
+        if not self.services: return None
+
+        result: list[Service] = []
+
+        for service in self.services:
+            if service.service_type == ServiceTypes.PROVIDED.value:
+                result.append(service)
+
+        return result
+
+    def get_requested_services(self) -> Optional[list[Service]]:
+        if not self.services: return None
+
+        result: list[Service] = []
+
+        for service in self.services:
+            if service.service_type == ServiceTypes.REQUESTED.value:
+                result.append(service)
+
+        return result
+
+async def _build_order(data: dict) -> Order:
+    client_info = data.get("clients")
+    client_id: int = client_info.get("id")
+    client_name: str = client_info.get("name")
+    client_phone: str = client_info.get("phone")
+    client_address: str | None = client_info.get("address", None)
+    client: Client = Client(name=client_name, phone=client_phone, id=client_id, address=client_address)
+
+    services_info = data.get("order_services")
+    services_list: list | None = None
+    if services_info is not None:
+        services_list = []
+        for service in services_info:
+            service_info = service.get("services")
+            service_id: int = service_info.get("id")
+            service_name: str = service_info.get("name")
+            service_desc: str = service_info.get("description")
+            service_price: int | None = service.get("price") or service_info.get("price")
+            service_type: ServiceTypes = service.get("service_type")
+            s = Service(name=service_name, description=service_desc, price=service_price, service_type=service_type,
+                        id=service_id)
+            services_list.append(s)
+
+    worker_info: dict | None = data.get("workers", None)
+    worker: Worker | None = None
+
+    if worker_info is not None:
+        worker_name: str = worker_info.get("name")
+        worker_role: str = worker_info.get("role")
+        worker_id: int = worker_info.get("id")
+        worker = Worker(name=worker_name, role=worker_role, id=worker_id)
+
+    trouble_desc: str = data.get("trouble_description")
+    status: OrderStatus = data.get("status")
+    accept_date: str = data.get("accept_date")
+    finish_date: str = data.get("finish_date") or "Не завершён"
+    device_type: str = data.get("device_type") or "Не указан"
+    device_brand: str = data.get("device_brand") or "Не указан"
+    device_model: str = data.get("device_model") or "Не указана"
+    technician_notes: str = data.get("technician_notes")
+    priority_code: int = data.get("priority")
+    priority: Priorities = Priorities(priority_code)
+    order_id: int = data.get("id")
+
+    order = Order(
+        client=client,
+        services=services_list,
+        worker=worker,
+        trouble_description=trouble_desc,
+        status=status,
+        accept_date=accept_date,
+        finish_date=finish_date,
+        device_type=device_type,
+        device_brand=device_brand,
+        device_model=device_model,
+        technician_notes=technician_notes,
+        priority=priority,
+        id=order_id
+    )
+
+    return order
+
+async def _build_orders_list(orders: list) -> list[Order]:
+    result: list = []
+
+    for order in orders:
+        o = await _build_order(order)
+
+        result.append(o)
+
+    return result
+
 
 class OrderManager:
-    def __init__(self, supabase: Client):
+    def __init__(self, supabase: AsyncClient):
         self.supabase = supabase
-        self.account_manager: AccountManager = AccountManager(supabase)
-        self.service_manager: ServiceManager = ServiceManager(supabase)
         self.client_manager: ClientManager = ClientManager(supabase)
+        self.service_manager: ServiceManager = ServiceManager(supabase)
 
-    def make_order_new_client(self, client_name, client_phone, client_address, service_name, trouble_description) -> tuple[int, bool]:
-        client_id = self.client_manager.add_client(client_name, client_phone, client_address)
+    async def make_order_new_client(self,
+                                    client_name: str,
+                                    client_phone: str,
+                                    client_address: str | None,
+                                    trouble_description: str,
+                                    device_type: str,
+                                    device_brand: str,
+                                    device_model: str,
+                                    requested_services: list[Service],
+                                    priority: int) -> tuple[Client | None, bool]:
         try:
-            good = self.make_order(client_phone, service_name, trouble_description)
-        except Exception:
-            self.supabase.table("clients").delete().eq("id", client_id).execute()
-            raise
+            client = await self.client_manager.add_client(client_name, client_phone, client_address)
+            good = await self.make_order(
+                client.phone,
+                trouble_description,
+                device_type,
+                device_brand,
+                device_model,
+                requested_services,
+                priority
+            )
+        except Exception as e:
+            msg = str(e)
+            logger.error(msg)
+            return None, False
+
         if not good:
-            self.supabase.table("clients").delete().eq("id", client_id).execute()
-            return -1, good
-        return client_id, good
+            await self.client_manager.delete_client(client.id)
+            return None, good
 
-    def make_order(self, client_phone: str, service_name: str, trouble_description: str) -> bool:
-        client_info: tuple[str, str, str, int] = self.client_manager.get_client(client_phone)
-        if client_info is None: raise ClientNotExistsError("Такого клиента не существует")
+        return client, good
 
-        service_info: tuple[str, str, int | None, int] = self.service_manager.get_service_by_name(service_name)
-        if service_info is None: raise ServiceNotExistsError("Такого сервиса не существует")
+    async def make_order(self, client_phone: str,
+                         trouble_description: str,
+                         device_type: str,
+                         device_brand: str,
+                         device_model: str,
+                         requested_services: list[Service],
+                         priority: int) -> bool:
+        client: Client = await self.client_manager.get_client(client_phone)
 
-        client_id = client_info[3]
-        service_id = service_info[3]
+        if client is None: raise ClientNotExistsError("Такого клиента не существует")
+        if requested_services is None: raise ValueError("Должна быть запрошена хотя бы одна услуга")
 
-        if trouble_description == "" : trouble_description = "Не описано"
+        if trouble_description == "": trouble_description = "Не описано"
 
-        accept_time: str = now_date
         try:
-            self.supabase.table("orders").insert({"client_id": client_id, "service_id": service_id, "trouble_description": trouble_description, "accept_date": accept_time}).execute()
-            logger.info(f"Создан заказ! Имя клиента {client_info[0]}, Номер телефона: {client_info[1]}, Название услуги: {service_name}, Описание проблемы: {trouble_description}")
+            response = await self.supabase.table("orders").insert({
+                "client_id": client.id,
+                "trouble_description": trouble_description,
+                "device_type": device_type,
+                "device_brand": device_brand,
+                "device_model": device_model,
+                "accept_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+                "priority": priority
+            }).execute()
+            order_id = response.data[0].get("id")
+            await self.service_manager.add_services_to_order(order_id, requested_services)
+
         except Exception as e:
             msg = str(e)
             logger.error(f"!!!THIS IS ERROR!!! -> {msg}")
             return False
+
+        logger.info(
+            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}, Приоритет: {priority}")
         return True
 
-    def get_all_orders(self) -> list:
-        orders: list = self.supabase.table("orders").select("*").execute().data
-        services: list = self.supabase.table("services").select("*").execute().data
-        clients: list = self.supabase.table("clients").select("*").execute().data
-        workers: list = self.supabase.table("accounts").select("id, name").execute().data
+    async def get_all_orders(self) -> list[Order]:
+        orders = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").execute()
 
-        # Превращаем списки в словари для быстрого поиска
-        services_dict: dict = {s["id"]: s for s in services}
-        clients_dict: dict = {c["id"]: c for c in clients}
-        workers_dict: dict = {w["id"]: w for w in workers}
+        data = orders.data
 
-        result: list = []
+        if not data:
+            return []
 
-        for order in orders:
-            client = clients_dict.get(order["client_id"], {})
-            service = services_dict.get(order["service_id"], {})
-            worker = workers_dict.get(order["worker_id"], {})
+        return await _build_orders_list(data)
 
-            client_name = client.get("name", "Не найдено")
-            client_phone = client.get("phone", "Не найдено")
-            client_address = client.get("address") if not client.get("address") is None else "Не выдан"
+    async def get_order(self, order_id: int) -> Order:
+        response = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("id", order_id).execute()
+        if not response.data:
+            raise ValueError(f"Заказ с id [{order_id}] не найден")
 
-            service_name = service.get("name", "Не найдено")
-            service_desc = service.get("description", "Не найдено")
-            service_price = service.get("price") if not service.get("price") is None else "Нет точной до завершения"
+        data = response.data[0]
 
-            worker_name = worker.get("name", "Не назначен")
-            trouble_desc = order.get("trouble_description") if not order.get("trouble_description") is None else "Не описана"
-            status = order.get("status")
-            accept_date = datetime.fromisoformat(order.get("accept_date")).strftime("%d/%m/%Y %H:%M:%S")
-            finish_date = datetime.fromisoformat(order.get("finish_date")).strftime("%d/%m/%Y %H:%M:%S") if not order.get("finish_date") is None else "Не завершен"
+        return await _build_order(data)
 
-            logger.info(
-                f"\nИмя клиента: {client_name}"
-                f"\nНомер телефона клиента: {client_phone}"
-                f"\nАдрес клиента: {client_address}"
-                f"\nНазвание сервиса: {service_name}"
-                f"\nОписание сервиса: {service_desc}"
-                f"\nЦена сервиса: {service_price}"
-                f"\nИмя работника: {worker_name}"
-                f"\nОписание проблемы: {trouble_desc}"
-                f"\nСтатус: {status}"
-                f"\nВремя принятия: {accept_date}"
-                f"\nВремя завершения: {finish_date}"
-            )
+    async def get_client_orders(self, client: Client) -> list[Order]:
+        orders = await self.supabase.table("orders").select("*, clients(*), workers(*), order_services(*, services(*))").eq("clients.id", client.id).execute()
+        data = orders.data
 
-            order_info: list = [client_name, client_phone, client_address, service_name, service_desc, service_price, worker_name, trouble_desc, status, accept_date, finish_date]
-            result.append(order_info)
+        return await _build_orders_list(data)
 
-        return result
-
-    def get_order(self, client_phone: str) -> list:
-        client_info: tuple[str, str, str, int] = self.client_manager.get_client(client_phone)
-
-        client_name: str = client_info[0]
-        client_address: str = client_info[2]
-        client_id: int = client_info[3]
-
-        orders: list = self.supabase.table("orders").select("*").eq("client_id", client_id).execute().data
-
-        result: list = []
-
-        for order in orders:
-            service_id = order["service_id"]
-            worker_id = order["worker_id"]
-
-            service_info = self.service_manager.get_service_by_id(service_id)
-
-            if worker_id is not None:
-                worker_info = self.account_manager.get_account(worker_id)
-                worker_name = worker_info[1]
-            else:
-                worker_name = "Не назначен"
-
-            service_name = service_info[0]
-            service_desc = service_info[1]
-            service_price = service_info[2]
-
-            status = order["status"]
-            accept_date = order["accept_date"]
-            finish_date = order["finish_date"]
-            trouble_desc = order["trouble_description"]
-
-            info = (client_name, client_phone, client_address, service_name, service_desc, service_price, worker_name, trouble_desc, status, accept_date, finish_date)
-            result.append(info)
-
-        return result
-
-    def select_order(self, order_id: int, worker_id: int) -> bool:
+    async def select_order(self, order: Order, worker: Worker) -> bool:
         try:
-            order = self.supabase.table("orders").update({"worker_id": worker_id, "status": "В работе"}).eq("id", order_id).execute()
-            logger.info(order)
-            if not order:
-                raise ValueError(f"Заказ с ID = {order_id} не был найден")
-            return True
+            response = await self.supabase.table("orders").update({"worker_id": worker.id, "status": "В работе"}).eq("id",
+                                                                                                                  order.id).execute()
         except Exception as e:
             msg = str(e)
             if "orders_worker_id_fkey" in msg:
-                raise ValueError(f"Работник с ID = {worker_id} не был найден")
+                raise ValueError(f"Работник с ID = {worker.id} не был найден")
             else:
                 logger.error(msg)
-        return False
+                return False
 
-    def finish_order(self, order_id: int) -> bool:
+        if not response.data:
+            raise ValueError(f"Заказ с ID = {order.id} не был найден")
+
+        return True
+
+    async def finish_order(self, order_id: int) -> bool:
         try:
-            self.supabase.table("orders").update({"status": "Завершен", "finish_date": now_date}).eq("id", order_id).execute()
-            return True
+            await self.supabase.table("orders").update({"status": "Завершен", "finish_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S")}).eq("id",
+                                                                                                     order_id).execute()
         except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
@@ -163,8 +307,71 @@ class OrderManager:
             else:
                 logger.error(msg)
                 return False
+        return True
 
+    async def get_not_taken_orders(self) -> list[Order]:
+        orders = await self.supabase.table("orders").select("*, clients(*), order_services(*, services(*))").is_("worker_id",
+                                                                                              None).execute()
+        data = orders.data
+        return await _build_orders_list(data)
 
-# TODO: попробовать сделать вместо того, чтоыбы передовались числа или string классы order в которых можно будет сделать проверки типа equal is_taken и брать значения отдельно
-if __name__ == "__main__":
-    pass
+    async def get_workers_orders(self, worker: Worker) -> list[Order]:
+        orders = await (self.supabase.table("orders").select("*, clients(*), order_services(*, services(*)), workers(*)")
+                        .eq("worker_id", worker.id).execute())
+        data = orders.data
+        return await _build_orders_list(data)
+
+    async def update_order_technician_notes(self, order_id: int, technician_notes: str) -> bool:
+
+        response = await self.supabase.table("orders").update({"technician_notes": technician_notes}).eq("id", order_id).execute()
+
+        if not response.data:
+            return False
+
+        return True
+
+    async def init_orders_realtime(self, handler: Callable):
+        """
+        Создаёт канал для просмотра изменений в таблице с заказами и подписывается на него.
+
+        !!! Нужно подкрепить его циклом типа while True: await asyncio.sleep(1) иначе соединение упадёт !!!
+        :param handler: Функция с входным аргументом data: dict
+        """
+        await self.supabase.realtime.connect()
+
+        if not self.supabase.realtime.is_connected:
+            raise OrdersRealtimeConnectionError("Не удалось подключиться к realtime")
+
+        channel = self.supabase.channel("order_updates_and_inserts").on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="orders",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="orders",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="order_services",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="order_services",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Update,
+            schema="public",
+            table="order_requests",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        ).on_postgres_changes(
+            event=RealtimePostgresChangesListenEvent.Insert,
+            schema="public",
+            table="order_requests",
+            callback=lambda payload: asyncio.create_task(handler(payload.get("data")))
+        )
+
+        await channel.subscribe()

@@ -1,10 +1,13 @@
 from PySide6.QtWidgets import QWidget, QStackedWidget, QLabel, QVBoxLayout, QPushButton
 from src.ui import Screens
+from qasync import asyncSlot
+
+from utils import NotificationManager
+
 
 class ManagerScreen(QWidget):
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, notification_manager: NotificationManager):
         super().__init__()
-        self.stack_widget = stack_widget
         self.layout = QVBoxLayout()
 
         self.label = QLabel("Менеджер")
@@ -12,12 +15,8 @@ class ManagerScreen(QWidget):
         self.button = QPushButton()
         self.button.setText("Регистрация")
 
-        self.button.clicked.connect(self.open_register_screen)
-
         self.layout.addWidget(self.label)
         self.layout.addWidget(self.button)
 
         self.setLayout(self.layout)
 
-    def open_register_screen(self):
-        self.stack_widget.setCurrentIndex(Screens.REGISTER_SCREEN.value)

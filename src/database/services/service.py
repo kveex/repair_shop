@@ -1,62 +1,81 @@
-from supabase import Client
-from postgrest import APIError
+from supabase import AsyncClient
 from logger_config import logger
-
+from dataclasses import dataclass
+from enum import Enum
 class ServiceNotExistsError(Exception): pass
 class ServiceExistsError(Exception): pass
 
-class ServiceManager:
-    def __init__(self, supabase: Client):
-        self.supabase = supabase
+class ServiceTypes(Enum):
+    REQUESTED = "Запрошенная"
+    PROVIDED = "Оказанная"
 
-    def add_service(self, name: str, description: str, price: int | None) -> int:
+@dataclass(order=True)
+class Service:
+    name: str
+    description: str
+    price: int | None
+    service_type: ServiceTypes
+    id: int
+
+    def is_provided(self) -> bool:
+        return self.service_type == ServiceTypes.PROVIDED.value
+
+    def is_requested(self) -> bool:
+        return self.service_type == ServiceTypes.REQUESTED.value
+
+class ServiceManager:
+    def __init__(self, supabase: AsyncClient):
+        self.supabase: AsyncClient = supabase
+
+    async def add_service(self, name: str, description: str, price: int | None) -> Service:
         if not name or not description: raise ValueError("Имя и описание услуги должны быть заполнены!")
         try:
             if price == "": price = None
-            response = self.supabase.table("services").insert({"name": name, "description": description, "price": price}).execute()
-            return response.data[0]["id"]
-        except APIError as e:
+            response = await self.supabase.table("services").insert({"name": name, "description": description, "price": price}).execute()
+            data = response.data
+        except Exception as e:
             msg = str(e)
             if "duplicate key" in msg or "unique" in msg:
                 raise ServiceExistsError(f"Услуга с именем {name} уже существует!")
             else:
                 raise ValueError(f"Ошибка при добавлении услуги {name}: {msg}")
 
-    def delete_service(self, service_id: int) -> bool:
-        if not service_id: raise ValueError("ID услуги должен быть заполнен!")
+        return Service(name=name, description=description, price=price, id=data[0]["id"], service_type=None)
 
-        response = self.supabase.table("services").select("*").eq("id", service_id).execute().data
+    async def delete_service(self, service: Service) -> bool:
+        response = await self.supabase.table("services").delete().eq("id", service.id).execute()
+        data = response.data
 
-        if not response:
-            raise ServiceNotExistsError(f"Услуга с ID {service_id} не найдена")
-        else:
-            name: str = response[0]["name"]
+        if not data:
+            raise ServiceNotExistsError(f"Услуга '{service.name}' не найдена")
 
-            self.supabase.table("services").delete().eq("id", service_id).execute()
-            logger.info(f"Услуга {name} успешно удалена")
+        return True
 
-            return True
-
-    def get_all_services(self) -> list[list[str]]:
-        services: list = self.supabase.table("services").select("*").execute().data
+    async def get_all_services(self) -> list[Service]:
+        services = await self.supabase.table("services").select("*").execute()
+        data = services.data
         result: list = []
 
-        for service in services:
-            s_id: int = service["id"]
-            name: str = service["name"]
-            description: str = service["description"]
-            price: int = service["price"]
+        for service_info in data:
+            s_id: int = service_info["id"]
+            name: str = service_info["name"]
+            description: str = service_info["description"]
+            price: int = service_info["price"] or 0
+            service_type: ServiceTypes = ServiceTypes.REQUESTED
 
             logger.info(f"ID: {s_id} | Имя: {name} | Описание: {description} | Цена: {price}")
 
-            result.append((name, description, price, s_id))
+            service = Service(name=name, description=description, price=price, id=s_id, service_type=service_type)
+
+            result.append(service)
 
         return result
 
-    def get_service_by_id(self, service_id: int) -> tuple[str, str, int, int] | None:
+    async def get_service(self, service_id: int) -> Service | None:
         try:
-            service_info: list = self.supabase.table("services").select("*").eq("id", service_id).execute().data
-        except APIError as e:
+            service_info = await self.supabase.table("services").select("*").eq("id", service_id).execute()
+            data = service_info.data
+        except Exception as e:
             msg = str(e)
             if "invalid input" in msg:
                 raise ValueError(f"Услуга не найдена, так как введено что-то что не является ID услуги")
@@ -64,25 +83,73 @@ class ServiceManager:
                 logger.error(msg)
                 return None
 
-        service: tuple[str, str, int, int] = _give_service(service_info)
+        if not data:
+            raise ServiceNotExistsError("Услуга не найдена")
+
+        name: str = data[0]["name"]
+        description: str = data[0]["description"]
+        price: int = data[0]["price"] | None
+        s_id: int = data[0]["id"]
+
+        service = Service(name=name, description=description, price=price, id=s_id, service_type=None)
 
         return service
 
-    def get_service_by_name(self, service_name: str) -> tuple[str, str, int | None, int]:
-        if not service_name: raise ValueError("Название услуги не может быть пустым")
+    async def get_order_services(self, order) -> list[Service]:
+        response = await self.supabase.table("order_services").select("*, services(*)").eq("order_id", order.id).execute()
 
-        service_info: list = self.supabase.table("services").select("*").eq("name", service_name).execute().data
-        service = _give_service(service_info)
+        data = response.data
+        result: list = []
 
-        return service
+        for info in data:
+            service_info = info.get("services")
+            service = Service(
+                name=service_info.get("name"),
+                description=service_info.get("description"),
+                price=service_info.get("price"),
+                id=service_info.get("id"),
+                service_type=info.get("service_type")
+            )
 
-def _give_service(service_info: list) -> tuple[str, str, int, int]:
-    if not service_info:
-        raise ServiceNotExistsError("Услига не существует")
+            result.append(service)
 
-    s_id: int = service_info[0]["id"]
-    name: str = service_info[0]["name"]
-    description: str = service_info[0]["description"]
-    price: int = service_info[0]["price"]
+        return result
 
-    return name, description, price, s_id
+    async def add_services_to_order(self, order_id: int, services: list[Service]) -> bool:
+        services_dicts: list[dict] = []
+        for service in services:
+            if service is None: continue
+            info = {
+                "order_id": order_id,
+                "service_id": service.id,
+                "price": service.price,
+                "service_type": service.service_type.value
+            }
+            services_dicts.append(info)
+
+        try:
+            await self.supabase.table("order_services").insert(services_dicts).execute()
+        except Exception as e:
+            logger.error(str(e))
+            return False
+        return True
+
+    async def update_order_services(self, order_id: int, services: list[Service]) -> bool:
+        if not services: return False
+        for service in services:
+            if service is None: continue
+            info = {
+                "price": service.price,
+                "service_type": service.service_type.value
+            }
+
+            try:
+                response = await self.supabase.table("order_services").update(info).eq("service_id", service.id).eq("order_id", order_id).execute()
+                print(response.data)
+            except Exception as e:
+                logger.error(str(e))
+                return False
+        return True
+
+
+

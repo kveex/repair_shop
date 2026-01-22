@@ -1,11 +1,13 @@
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QStackedWidget, QPushButton,
     QLineEdit, QVBoxLayout, QLabel, QSpacerItem,
     QSizePolicy
 )
 from PySide6.QtCore import Qt
-from src.database import account_manager
+from src.database import get_worker_manager
 from src.ui import Screens
+from qasync import asyncSlot
 
 class RegisterScreen(QWidget):
     def __init__(self, stack_widget: QStackedWidget):
@@ -74,7 +76,9 @@ class RegisterScreen(QWidget):
         return valid
 
     # ⚙️ Основной метод регистрации
-    def register(self):
+    @asyncSlot()
+    async def register(self):
+        worker_manager = get_worker_manager()
         if not self.validate_inputs():
             return
 
@@ -86,7 +90,7 @@ class RegisterScreen(QWidget):
             return
 
         # ✅ Если всё ок — пробуем создать аккаунт
-        account_manager.register_account(
+        await worker_manager.register_worker(
             self.name_input.text(),
             self.login_input.text(),
             self.password_input.text()
