@@ -227,6 +227,7 @@ class ServiceInfoBox(BoxWidget):
                 service.deleteLater()
             except RuntimeError:
                 pass
+        self.services.clear()
 
 class ServiceSelectBox(BoxWidget):
     def __init__(self, label_text: str):
@@ -327,8 +328,12 @@ class ServiceBoxItem(QWidget):
 
     def get_service_price(self) -> int | None:
         cleaned = self._service_price.text().removesuffix("₽")
-        result: int = int(cleaned) if cleaned != "" else None
-        return result
+        if cleaned == "":
+            return None
+        try:
+            return int(cleaned)
+        except ValueError:
+            return None
 
 class InfoBox(BoxWidget):
     def __init__(self, label_text: str, value_text: str, hex_color: str = None, multi_line=False):

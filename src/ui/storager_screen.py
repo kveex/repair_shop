@@ -20,6 +20,7 @@ class StoragerScreen(QWidget):
         self.notification_manager = notification_manager
         self.storage_manager: Optional[StorageManager] = None
         self.storage_requests: list[StorageRequest] = []
+        self._realtime_initialized = False
         tab = QTabWidget()
         self.info_dialog = QDialog(self)
         self.cells_list = CardListWidget()
@@ -146,8 +147,10 @@ class StoragerScreen(QWidget):
     async def on_show(self):
         self.storage_manager = get_storage_manager()
         await self.fill_cards()
-        await self.storage_manager.init_order_requests_realtime(self.handle_request_cards)
-        await self.storage_manager.init_storage_realtime(self.handle_cell_cards)
+        if not self._realtime_initialized:
+            await self.storage_manager.init_order_requests_realtime(self.handle_request_cards)
+            await self.storage_manager.init_storage_realtime(self.handle_cell_cards)
+            self._realtime_initialized = True
         while self.isVisible():
             await asyncio.sleep(1)
 
@@ -203,8 +206,8 @@ class FullRequestInfo(QDialog):
 
     def check_change(self):
         self.info_label.hide()
-        if not self.cell_text and self.cell_number_box.get_value():
-            self.update_button.setEnabled(True)
+        new_value = self.cell_number_box.get_value().strip()
+        self.update_button.setEnabled(bool(new_value) and new_value != self.cell_text)
 
     @asyncSlot()
     async def update_cell_num(self, request):
@@ -213,6 +216,8 @@ class FullRequestInfo(QDialog):
             storage_id: int = int(self.cell_number_box.get_value())
             await self.storage_manager.update_request_cell(request.id, storage_id)
             self.info_label.setText("Номер ячейки с запрашиваемым предметом установлен")
+            self.cell_text: str = str(storage_id)
+            self.update_button.setEnabled(False)
         except NotExistingCellError as e:
             msg = str(e)
         except ValueError:
