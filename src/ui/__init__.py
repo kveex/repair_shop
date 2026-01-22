@@ -118,13 +118,8 @@ class CardListWidget(QWidget):
     def create_card(self, card_name: str, card_desc: str, full_card_info, func: Callable, card_help: str | None = None,
                     card_help_desc: str | None = None):
         card_id = full_card_info.id
-        if not card_id in self.cards:
+        if card_id not in self.cards:
             card = _CardWidget(card_name, card_desc, full_card_info, card_help, card_help_desc)
-
-            try:
-                self.cards[card_id].clicked.disconnect()
-            except KeyError:
-                pass
 
             card.clicked.connect(func)
             self.cards[card_id] = card
