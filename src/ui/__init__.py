@@ -1,18 +1,17 @@
 from enum import Enum, IntEnum
-from typing import Callable
+from typing import Callable, Optional
 
 from PySide6.QtGui import QTextOption, QAction
 from PySide6.QtWidgets import (QWidget, QPushButton, QLabel,
                                QGridLayout, QVBoxLayout, QScrollArea,
                                QLineEdit, QTextEdit, QHBoxLayout,
-                               QCheckBox, QComboBox,
-                               QMenuBar, QStackedWidget)
+                               QCheckBox, QMenuBar, QStackedWidget)
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from qt_material import QtStyleTools
 
 from database.services.service import ServiceTypes
-from src.database.services.order import Order, priority_to_name
+from src.database.services.order import Order
 from src.database.services.service import Service
 from src.database.services.worker import Worker
 from src.database.services.client import Client
@@ -26,6 +25,7 @@ class Screens(IntEnum):
     TECHNICIAN_SCREEN = 3
     STORAGER_SCREEN = 4
     REGISTER_SCREEN = 5
+    NO_ROLE_SCREEN = 6
 
 
 class Roles(Enum):
@@ -33,6 +33,7 @@ class Roles(Enum):
     CASHIER = "Кассир"
     TECHNICIAN = "Техник"
     STORAGER = "Работник склада"
+    NO_ROLE = "Не назначена"
 
 
 class _CardWidget(QPushButton):
@@ -182,13 +183,12 @@ class BoxWidget(QWidget):
 
 
 class ServiceInfoBox(BoxWidget):
-    def __init__(self, label_text: str, service_list: list[Service], on_check: Callable = None):
+    def __init__(self, label_text: str, service_list: list[Service]):
         super().__init__(label_text)
         self._empty_list_label = QLineEdit("Список пуст")
         self._empty_list_label.setReadOnly(True)
         self._empty_list_label.hide()
         layout = self.get_layout()
-        self._on_check = on_check
         self.services: dict[int, ServiceBoxItem] = {}
         container = QWidget()
 
@@ -209,7 +209,7 @@ class ServiceInfoBox(BoxWidget):
             return
 
         for service in service_list:
-            item = ServiceBoxItem(service, True, False, self._on_check)
+            item = ServiceBoxItem(service, True, False)
             self.services[service.id] = item
             self.services_layout.addWidget(item)
 
@@ -224,33 +224,37 @@ class ServiceInfoBox(BoxWidget):
                 pass
         self.services.clear()
 
+
 class ServiceSelectBox(BoxWidget):
+    item_checked = Signal()
+
     def __init__(self, label_text: str):
         super().__init__(label_text)
         self._is_provided: bool = False
-        self.services: dict[int, ServiceBoxItem] = {}
+        self._services: dict[int, ServiceBoxItem] = {}
         layout = self.get_layout()
         container = QWidget()
 
-        self.services_layout = QVBoxLayout(container)
-        self.services_layout.setSpacing(5)
-        self.services_layout.setContentsMargins(5, 5, 5, 5)
+        self._services_layout = QVBoxLayout(container)
+        self._services_layout.setSpacing(5)
+        self._services_layout.setContentsMargins(5, 5, 5, 5)
 
         layout.addWidget(container)
 
-    def add_service(self, service: Service, uneditable_price: bool, on_check: Callable = None, is_provided: bool = False, clickable: bool = True):
-        item = ServiceBoxItem(service, uneditable_price, clickable, on_check)
+    def add_service(self, service: Service, uneditable_price: bool, is_provided: bool = False, clickable: bool = True):
+        item = ServiceBoxItem(service, uneditable_price, clickable)
+        item.item_checked.connect(lambda: self.item_checked.emit())
         self._is_provided = is_provided
-        if service.id in self.services:
-            self.services[service.id].hide()
-            self.services[service.id].deleteLater()
-        self.services[service.id] = item
-        self.services_layout.addWidget(item)
+        if service.id in self._services:
+            self._services[service.id].hide()
+            self._services[service.id].deleteLater()
+        self._services[service.id] = item
+        self._services_layout.addWidget(item)
 
     def get_checked_services(self) -> list[Service]:
         result: list[Service] = []
 
-        for service in self.services.values():
+        for service in self._services.values():
             s = service.get_service_if_checked()
 
             if s is not None:
@@ -263,27 +267,28 @@ class ServiceSelectBox(BoxWidget):
         return result
 
     def reset_checks(self):
-        for service_item in self.services.values():
-            if not service_item.service.name == "Диагностика":
-                service_item.uncheck()
+        for service_item in self._services.values():
+            service_item.uncheck()
 
     def is_prices_set(self) -> bool:
-        for service in self.services.values():
+        for service in self._services.values():
             if not service.get_service_price(): return False
 
         return True
 
-class ServiceBoxItem(QWidget):
-    def __init__(self, service: Service, uneditable_price: bool, clickable: bool, on_check: Callable | None):
-        super().__init__()
 
-        self.service = service
+class ServiceBoxItem(QWidget):
+    item_checked = Signal()
+
+    def __init__(self, service: Service, uneditable_price: bool, clickable: bool):
+        super().__init__()
+        self._service = service
 
         layout = QHBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.check_box = None
+        self._check_box = None
         service_name = QLabel(service.name)
         service_name.setToolTip(f"Описание: {service.description}")
         self._service_price = QLineEdit()
@@ -294,31 +299,32 @@ class ServiceBoxItem(QWidget):
         self._service_price.setReadOnly(uneditable_price)
 
         if clickable:
-            self.check_box = QCheckBox()
-            if on_check is not None:
-                self.check_box.checkStateChanged.connect(on_check)
+            self._check_box = QCheckBox()
+            # if on_check is not None:
+            #     self.check_box.checkStateChanged.connect(on_check)
+            self._check_box.checkStateChanged.connect(lambda: self.item_checked.emit())
 
-        if self.check_box: layout.addWidget(self.check_box)
+        if self._check_box: layout.addWidget(self._check_box)
         layout.addWidget(service_name)
         layout.addWidget(self._service_price)
 
     def is_checked(self) -> bool:
-        if self.check_box:
-            return self.check_box.isChecked()
+        if self._check_box:
+            return self._check_box.isChecked()
         return False
 
     def uncheck(self):
-        if self.check_box:
-            self.check_box.setChecked(False)
+        if self._check_box:
+            self._check_box.setChecked(False)
 
     def check(self):
-        if self.check_box:
-            self.check_box.setChecked(True)
+        if self._check_box:
+            self._check_box.setChecked(True)
 
     def get_service_if_checked(self) -> Service | None:
-        if not self.check_box: return None
-        if self.check_box.isChecked():
-            return self.service
+        if not self._check_box: return None
+        if self._check_box.isChecked():
+            return self._service
         return None
 
     def get_service_price(self) -> int | None:
@@ -329,6 +335,10 @@ class ServiceBoxItem(QWidget):
             return int(cleaned)
         except ValueError:
             return None
+
+    def get_service(self) -> Service:
+        return self._service
+
 
 class InfoBox(BoxWidget):
     def __init__(self, label_text: str, value_text: str, hex_color: str = None, multi_line=False):
@@ -353,16 +363,22 @@ class InfoBox(BoxWidget):
 
 
 class InputBox(BoxWidget):
-    def __init__(self, label_text: str, multi_line=False, echo_mode: QLineEdit.EchoMode = QLineEdit.EchoMode.Normal):
+    def __init__(self, label_text: str, multi_line=False, echo_mode: QLineEdit.EchoMode = QLineEdit.EchoMode.Normal,
+                 on_change: Optional[Callable[[], None]] = None):
         super().__init__(label_text)
         layout = self.get_layout()
+        self._on_change = on_change
 
         if multi_line:
             self.value_input = QTextEdit()
             self.value_input.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+            if self._on_change:
+                self.value_input.textChanged.connect(self._on_change)
         else:
             self.value_input = QLineEdit()
             self.value_input.setEchoMode(echo_mode)
+            if self._on_change:
+                self.value_input.textChanged.connect(self._on_change)
 
         layout.addWidget(self.value_input)
 
@@ -384,24 +400,6 @@ class InputBox(BoxWidget):
 
     def clear_input(self):
         self.value_input.setText("")
-
-
-class PriorityInputBox(BoxWidget):
-    def __init__(self, label_text: str):
-        super().__init__(label_text)
-        layout = self.get_layout()
-        self.priority_box = QComboBox()
-        for priority, display_name in priority_to_name.items():
-            self.priority_box.addItem(display_name, priority)
-        self.priority_box.setCurrentIndex(0)
-
-        layout.addWidget(self.priority_box)
-
-    def get_data(self) -> int:
-        return self.priority_box.currentData()
-
-    def reset_index(self):
-        self.priority_box.setCurrentIndex(0)
 
 
 class MenuBar(QMenuBar, QtStyleTools):

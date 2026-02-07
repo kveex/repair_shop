@@ -8,12 +8,12 @@ from PySide6.QtWidgets import (QWidget,
 from realtime import RealtimePostgresChangesListenEvent
 
 from src.utils import validate_phone, format_phone_for_display, WrongPhoneCode, PhoneLengthError, PhoneValidationError
-from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox, PriorityInputBox
+from src.ui import CardListWidget, InfoBox, InputBox, ServiceInfoBox, ServiceSelectBox
 from src.utils import NotificationManager, NotificationType
 from qasync import asyncSlot
 
 from src.database import get_order_manager, get_service_manager, OrderManager
-from src.database.services.order import Order, priority_to_name, priority_to_color
+from src.database.services.order import Order
 from src.database.services.client import ClientNotExistsError
 
 class CashierScreen(QWidget):
@@ -123,16 +123,12 @@ class FullOrderInfo(QDialog):
         services_price = order.get_full_price()
         services_price_str: str = f"{services_price}₽" if services_price else "Нет точной цены"
         services_price_box = InfoBox("Общая цена услуг:", services_price_str)
-        priority_name: str = priority_to_name[order.priority]
-        priority_color: str = priority_to_color[order.priority]
-        priority_box = InfoBox("Приоритет заказа:", priority_name, hex_color=priority_color)
 
         left_layout.addWidget(client_name_box)
         left_layout.addWidget(client_phone_box)
         left_layout.addWidget(client_address_box)
         left_layout.addWidget(services_box)
         left_layout.addWidget(services_price_box)
-        left_layout.addWidget(priority_box)
 
         close_btn = QPushButton("Закрыть")
         close_btn.clicked.connect(self.accept)
@@ -221,13 +217,11 @@ class NewOrder(QWidget):
         self.device_brand_box = InputBox("Бренд устройства:")
         self.device_model_box = InputBox("Модель устройства:")
         self.services_box = ServiceSelectBox("Возможные услуги для оказания:")
-        self.priority_box = PriorityInputBox("Приоритет заказа:")
 
         right_layout.addWidget(self.device_type_box)
         right_layout.addWidget(self.device_brand_box)
         right_layout.addWidget(self.device_model_box)
         right_layout.addWidget(self.services_box)
-        right_layout.addWidget(self.priority_box)
         right_layout.addWidget(self.create_button)
 
         main_layout.addLayout(left_layout)
@@ -240,7 +234,8 @@ class NewOrder(QWidget):
         services: list = await service_manager.get_all_services()
 
         for service in services:
-            self.services_box.add_service(service, True, lambda: self.check_fields())
+            self.services_box.add_service(service, True)
+            self.services_box.item_checked.connect(self.check_fields)
 
     def check_fields(self):
         client_phone = self.client_phone_box.get_value()
@@ -264,7 +259,6 @@ class NewOrder(QWidget):
         device_brand: str = self.device_brand_box.get_value()
         device_model: str = self.device_model_box.get_value()
         requested_services: list = self.services_box.get_checked_services()
-        order_priority: int = self.priority_box.get_data()
 
         try:
             client_phone = validate_phone(client_phone)
@@ -280,8 +274,7 @@ class NewOrder(QWidget):
                     device_type=device_type,
                     device_brand=device_brand,
                     device_model=device_model,
-                    requested_services=requested_services,
-                    priority=order_priority,
+                    requested_services=requested_services
                 )
             except ClientNotExistsError as e:
                 self.notification_manager.show_notification("Оповещение", str(e), NotificationType.NOTIFY)
@@ -298,8 +291,7 @@ class NewOrder(QWidget):
                 device_type,
                 device_brand,
                 device_model,
-                requested_services,
-                order_priority
+                requested_services
             )
             created = result[1]
 
@@ -313,7 +305,6 @@ class NewOrder(QWidget):
             self.device_brand_box.clear_input()
             self.device_model_box.clear_input()
             self.services_box.reset_checks()
-            self.priority_box.reset_index()
             self.client_name_box.hide()
             self.client_address_box.hide()
 

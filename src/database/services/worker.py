@@ -42,17 +42,18 @@ class WorkerManager:
         return worker
 
     async def register_worker(self, name: str, new_login: str, new_password: str) -> Worker | None:
+        from src.ui import Roles
         if not name or not new_login or not new_password:
             raise ValueError("Все поля должны быть заполнены!")
 
         hashed_password: str = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
 
         try:
-            worker_info = await self.supabase.table("workers").insert({"name": name, "login": new_login, "password": hashed_password}).execute()
+            worker_info = await self.supabase.table("workers").insert({"name": name, "role": Roles.NO_ROLE.value, "login": new_login, "password": hashed_password}).execute()
         except Exception as e:
             msg = str(e)
             if "duplicate key" in msg or "unique" in msg:
-                raise LoginMatchError("Логин уже существует!")
+                raise LoginMatchError("Этот логин уже занят!")
             else:
                 logger.error(msg)
                 return None

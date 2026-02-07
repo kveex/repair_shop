@@ -9,6 +9,8 @@ from typing import Optional, Callable
 class NotExistingCellError(Exception): pass
 class StorageRealtimeConnectionError(Exception): pass
 
+# TODO: Создать методы для постройки информации в класс ячейки и в класс запроса
+
 @dataclass(frozen=True, order=True)
 class StorageOrder:
     device_type: str

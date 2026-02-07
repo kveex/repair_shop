@@ -1,3 +1,5 @@
+from typing import Optional
+
 from supabase import AsyncClient
 from logger_config import logger
 from dataclasses import dataclass
@@ -27,7 +29,7 @@ class ServiceManager:
     def __init__(self, supabase: AsyncClient):
         self.supabase: AsyncClient = supabase
 
-    async def add_service(self, name: str, description: str, price: int | None) -> Service:
+    async def add_service(self, name: str, description: str, price: Optional[int], service_type: ServiceTypes = ServiceTypes.REQUESTED) -> Service:
         if not name or not description: raise ValueError("Имя и описание услуги должны быть заполнены!")
         try:
             if price == "": price = None
@@ -40,7 +42,7 @@ class ServiceManager:
             else:
                 raise ValueError(f"Ошибка при добавлении услуги {name}: {msg}")
 
-        return Service(name=name, description=description, price=price, id=data[0]["id"], service_type=None)
+        return Service(name=name, description=description, price=price, id=data[0]["id"], service_type=service_type)
 
     async def delete_service(self, service: Service) -> bool:
         response = await self.supabase.table("services").delete().eq("id", service.id).execute()
@@ -70,30 +72,6 @@ class ServiceManager:
             result.append(service)
 
         return result
-
-    async def get_service(self, service_id: int) -> Service | None:
-        try:
-            service_info = await self.supabase.table("services").select("*").eq("id", service_id).execute()
-            data = service_info.data
-        except Exception as e:
-            msg = str(e)
-            if "invalid input" in msg:
-                raise ValueError(f"Услуга не найдена, так как введено что-то что не является ID услуги")
-            else:
-                logger.error(msg)
-                return None
-
-        if not data:
-            raise ServiceNotExistsError("Услуга не найдена")
-
-        name: str = data[0]["name"]
-        description: str = data[0]["description"]
-        price: int = data[0]["price"] | None
-        s_id: int = data[0]["id"]
-
-        service = Service(name=name, description=description, price=price, id=s_id, service_type=None)
-
-        return service
 
     async def get_order_services(self, order) -> list[Service]:
         response = await self.supabase.table("order_services").select("*, services(*)").eq("order_id", order.id).execute()
@@ -144,8 +122,7 @@ class ServiceManager:
             }
 
             try:
-                response = await self.supabase.table("order_services").update(info).eq("service_id", service.id).eq("order_id", order_id).execute()
-                print(response.data)
+                await self.supabase.table("order_services").update(info).eq("service_id", service.id).eq("order_id", order_id).execute()
             except Exception as e:
                 logger.error(str(e))
                 return False

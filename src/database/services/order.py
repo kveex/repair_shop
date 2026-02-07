@@ -6,7 +6,7 @@ from supabase import AsyncClient
 from datetime import datetime
 from logger_config import logger
 from dataclasses import dataclass
-from enum import IntEnum, Enum
+from enum import Enum
 
 from src.database.services.service import Service, ServiceTypes, ServiceManager
 from src.database.services.worker import Worker
@@ -19,23 +19,6 @@ class OrderStatus(Enum):
     STOPPED = "Отложено"
     FINISHED = "Завершено"
     REJECTED = "Отказ"
-
-class Priorities(IntEnum):
-    NORMAL = 0
-    HIGH = 1
-    EMERGENT = 2
-
-priority_to_name = {
-    Priorities.NORMAL: "Обычный",
-    Priorities.HIGH: "Высокий",
-    Priorities.EMERGENT: "Срочный"
-}
-
-priority_to_color = {
-    Priorities.NORMAL: "",
-    Priorities.HIGH: "#f2b02b",
-    Priorities.EMERGENT: "#f2352b"
-}
 
 class OrdersRealtimeConnectionError(Exception): pass
 
@@ -52,7 +35,6 @@ class Order:
     device_brand: str
     device_model: str
     technician_notes: str
-    priority: Priorities
     id: int
 
     def is_taken(self) -> bool:
@@ -148,7 +130,6 @@ async def _build_order(data: dict) -> Order:
     device_model: str = data.get("device_model") or "Не указана"
     technician_notes: str = data.get("technician_notes")
     priority_code: int = data.get("priority")
-    priority: Priorities = Priorities(priority_code)
     order_id: int = data.get("id")
 
     order = Order(
@@ -163,7 +144,6 @@ async def _build_order(data: dict) -> Order:
         device_brand=device_brand,
         device_model=device_model,
         technician_notes=technician_notes,
-        priority=priority,
         id=order_id
     )
 
@@ -194,8 +174,7 @@ class OrderManager:
                                     device_type: str,
                                     device_brand: str,
                                     device_model: str,
-                                    requested_services: list[Service],
-                                    priority: int) -> tuple[Client | None, bool]:
+                                    requested_services: list[Service]) -> tuple[Client | None, bool]:
         try:
             client = await self.client_manager.add_client(client_name, client_phone, client_address)
             good = await self.make_order(
@@ -204,8 +183,7 @@ class OrderManager:
                 device_type,
                 device_brand,
                 device_model,
-                requested_services,
-                priority
+                requested_services
             )
         except Exception as e:
             msg = str(e)
@@ -223,8 +201,7 @@ class OrderManager:
                          device_type: str,
                          device_brand: str,
                          device_model: str,
-                         requested_services: list[Service],
-                         priority: int) -> bool:
+                         requested_services: list[Service]) -> bool:
         client: Client = await self.client_manager.get_client(client_phone)
 
         if client is None: raise ClientNotExistsError("Такого клиента не существует")
@@ -239,8 +216,7 @@ class OrderManager:
                 "device_type": device_type,
                 "device_brand": device_brand,
                 "device_model": device_model,
-                "accept_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
-                "priority": priority
+                "accept_date": datetime.now().strftime("%Y/%m/%d %H:%M:%S")
             }).execute()
             order_id = response.data[0].get("id")
             await self.service_manager.add_services_to_order(order_id, requested_services)
@@ -251,7 +227,7 @@ class OrderManager:
             return False
 
         logger.info(
-            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}, Приоритет: {priority}")
+            f"Создан заказ! Имя клиента {client.name}, Номер телефона: {client.phone}, Описание проблемы: {trouble_description}")
         return True
 
     async def get_all_orders(self) -> list[Order]:

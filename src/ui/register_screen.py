@@ -1,114 +1,89 @@
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QStackedWidget, QPushButton,
-    QLineEdit, QVBoxLayout, QLabel, QSpacerItem,
-    QSizePolicy
+    QLineEdit, QVBoxLayout, QSpacerItem,
+    QSizePolicy, QHBoxLayout
 )
-from PySide6.QtCore import Qt
+from database.services.worker import LoginMatchError
+from src.ui import InputBox
 from src.database import get_worker_manager
-from src.ui import Screens
 from qasync import asyncSlot
 
+from utils import NotificationManager, NotificationType
+
+
 class RegisterScreen(QWidget):
-    def __init__(self, stack_widget: QStackedWidget):
+    def __init__(self, stack_widget: QStackedWidget, notification_manager: NotificationManager):
         super().__init__()
         self.stack_widget = stack_widget
+        self._notification_manager = notification_manager
 
-        layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
 
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("ФИО")
+        inner_layout = QVBoxLayout()
 
-        self.login_input = QLineEdit()
-        self.login_input.setPlaceholderText("Логин")
+        self._name_input_box = InputBox("ФИО пользователя", on_change=self._validate_inputs)
+        self._login_input_box = InputBox("Логин", on_change=self._validate_inputs)
+        self._password_input_box = InputBox("Пароль", echo_mode=QLineEdit.EchoMode.Password, on_change=self._validate_inputs)
+        self._password_validate_input_box = InputBox("Подтвердить пароль", echo_mode=QLineEdit.EchoMode.Password, on_change=self._validate_inputs)
 
-        self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Пароль")
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._register_button = QPushButton("Создать аккаунт")
+        self._register_button.clicked.connect(self.register)
+        self._register_button.setEnabled(False)
 
-        self.validate_password_input = QLineEdit()
-        self.validate_password_input.setPlaceholderText("Подтвердите пароль")
-        self.validate_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        return_back_button = QPushButton("Назад")
+        return_back_button.clicked.connect(lambda: self.stack_widget.setCurrentIndex(0))
 
-        # 🟥 Метка ошибки
-        self.error_label = QLabel("")
-        self.error_label.setStyleSheet("color: red; font-size: 14px;")
-        self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.error_label.hide()  # по умолчанию скрыта
+        inner_layout.addStretch(1)
+        inner_layout.addWidget(self._name_input_box)
+        inner_layout.addWidget(self._login_input_box)
+        inner_layout.addWidget(self._password_input_box)
+        inner_layout.addWidget(self._password_validate_input_box)
 
-        register_button = QPushButton("Создать аккаунт")
-        register_button.clicked.connect(self.register)
+        inner_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
 
-        # 🔗 Подключаем события ввода для всех полей
-        self.name_input.textChanged.connect(self.reset_error_state)
-        self.login_input.textChanged.connect(self.reset_error_state)
-        self.password_input.textChanged.connect(self.reset_error_state)
-        self.validate_password_input.textChanged.connect(self.reset_error_state)
+        inner_layout.addWidget(self._register_button)
+        inner_layout.addWidget(return_back_button)
+        inner_layout.addStretch(1)
 
-        # 📦 Добавляем элементы
-        layout.addWidget(self.name_input)
-        layout.addWidget(self.login_input)
-        layout.addWidget(self.password_input)
-        layout.addWidget(self.validate_password_input)
-        layout.addWidget(self.error_label)
+        main_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
+        main_layout.addLayout(inner_layout)
+        main_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
 
-        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding)
-        layout.addSpacerItem(spacer)
+    def _validate_inputs(self):
+        name: str = self._name_input_box.get_value()
+        login: str = self._login_input_box.get_value()
+        password: str = self._password_input_box.get_value()
+        password_validate: str = self._password_validate_input_box.get_value()
 
-        layout.addWidget(register_button)
+        enabled = True if name != "" and login != "" and password != "" and password_validate != "" else False
 
-    # 🔍 Проверка на пустые поля
-    def validate_inputs(self) -> bool:
-        inputs = [self.name_input, self.login_input, self.password_input, self.validate_password_input]
-        valid = True
+        self._register_button.setEnabled(enabled)
 
-        for inp in inputs:
-            if not inp.text().strip():
-                inp.setStyleSheet("border: 2px solid red; border-radius: 6px;")
-                valid = False
-            else:
-                inp.setStyleSheet("")  # убираем рамку если поле ок
-
-        if not valid:
-            self.error_label.setText("❌ Заполните все поля")
-            self.error_label.show()
-
-        return valid
-
-    # ⚙️ Основной метод регистрации
     @asyncSlot()
     async def register(self):
+        name: str = self._name_input_box.get_value()
+        login: str = self._login_input_box.get_value()
+        password: str = self._password_input_box.get_value()
+        password_validate: str = self._password_validate_input_box.get_value()
+
         worker_manager = get_worker_manager()
-        if not self.validate_inputs():
+
+        if password != password_validate:
+            self._notification_manager.show_notification("Ошибка", "Пароли не совпадают!", NotificationType.ERROR)
+            self._password_input_box.clear_input()
+            self._password_validate_input_box.clear_input()
             return
 
-        if self.password_input.text() != self.validate_password_input.text():
-            self.error_label.setText("❌ Пароли не совпадают")
-            self.error_label.show()
-            self.password_input.setStyleSheet("border: 2px solid red; border-radius: 6px;")
-            self.validate_password_input.setStyleSheet("border: 2px solid red; border-radius: 6px;")
+        try:
+            worker = await worker_manager.register_worker(name, login, password)
+        except LoginMatchError as e:
+            self._notification_manager.show_notification("Ошибка", str(e), NotificationType.WARNING)
             return
 
-        # ✅ Если всё ок — пробуем создать аккаунт
-        await worker_manager.register_worker(
-            self.name_input.text(),
-            self.login_input.text(),
-            self.password_input.text()
-        )
-
-        self.error_label.setText("✅ Аккаунт успешно создан!")
-        self.error_label.setStyleSheet("color: green; font-size: 14px;")
-        self.error_label.show()
-        self.stack_widget.setCurrentIndex(Screens.LOGIN_SCREEN.value)
-
-    # 🔄 Убирает ошибки при вводе
-    def reset_error_state(self):
-        sender = self.sender()
-        sender.setStyleSheet("")  # убираем красную рамку
-
-        # Если все поля заполнены — скрываем ошибку
-        if all([self.name_input.text().strip(),
-                self.login_input.text().strip(),
-                self.password_input.text().strip(),
-                self.validate_password_input.text().strip()]):
-            self.error_label.hide()
+        if worker:
+            self._notification_manager.show_notification("Успех", f"Аккаунт {worker.name} создан!", NotificationType.SUCCESS)
+            self.stack_widget.setCurrentIndex(0)
+            return
+        else:
+            self._notification_manager.show_notification("Ошибка", "Что-то пошло не так во время создания аккаунта, попробуйте в другой раз", NotificationType.ERROR)
+            return

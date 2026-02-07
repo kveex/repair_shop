@@ -29,10 +29,14 @@ class LoginScreen(QWidget):
         self.login_button.clicked.connect(self.login)
         self.login_button.setEnabled(False)
 
+        register_account_button = QPushButton("Создать новый")
+        register_account_button.clicked.connect(lambda: self.stack_widget.setCurrentIndex(5))
+
         layout.addStretch(1)
         layout.addWidget(self.login_input_box)
         layout.addWidget(self.password_input_box)
         layout.addWidget(self.login_button)
+        layout.addWidget(register_account_button)
         layout.addStretch(1)
 
         main_layout.addSpacerItem(QSpacerItem(90, 40, QSizePolicy.Policy.MinimumExpanding))
@@ -51,7 +55,8 @@ class LoginScreen(QWidget):
             Roles.MANAGER.value: Screens.MANAGER_SCREEN.value,
             Roles.CASHIER.value: Screens.CASHIER_SCREEN.value,
             Roles.TECHNICIAN.value: Screens.TECHNICIAN_SCREEN.value,
-            Roles.STORAGER.value: Screens.STORAGER_SCREEN.value
+            Roles.STORAGER.value: Screens.STORAGER_SCREEN.value,
+            Roles.NO_ROLE.value: Screens.NO_ROLE_SCREEN.value
         }
 
         debug: bool = False

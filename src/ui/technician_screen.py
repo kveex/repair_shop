@@ -3,7 +3,7 @@ from typing import Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QDialog,
-                               QHBoxLayout, QPushButton, QStackedWidget)
+                               QHBoxLayout, QPushButton, QStackedWidget, QTabWidget)
 from realtime import RealtimePostgresChangesListenEvent
 
 import src.database as db
@@ -14,10 +14,12 @@ from src.database.services.order import Order, OrderManager
 from src.database.services.worker import Worker
 from src.ui import CardListWidget, ServiceSelectBox, ServiceInfoBox, InfoBox, InputBox
 from utils import NotificationManager, NotificationType
+from logger_config import logger
 
 
 class _OrderSelectionListWidget(QWidget):
     order_selected = Signal(Order)
+
     def __init__(self):
         super().__init__()
         self._worker: Optional[Worker] = None
@@ -43,7 +45,6 @@ class _OrderSelectionListWidget(QWidget):
         self._order_manager = order_manager
 
     async def start_realtime(self) -> None:
-        print("realtime launched")
         await self._order_manager.init_orders_realtime(self._handle_update)
 
         while self.isVisible():
@@ -82,9 +83,8 @@ class _OrderSelectionListWidget(QWidget):
                 func=lambda _, o=order: self._on_card_press(o)
             )
 
-
-class _SelectedOrderWidget(QWidget):
-    def __init__(self, notification_manager: NotificationManager):
+class _OrderInfo(QWidget):
+    def __init__(self, notification_manager: NotificationManager) -> None:
         super().__init__()
         self._notification_manager = notification_manager
         self._order_manager: Optional[OrderManager] = None
@@ -145,20 +145,28 @@ class _SelectedOrderWidget(QWidget):
         good_prices: bool = self.provided_services_box.is_prices_set()
 
         if not good_prices:
-            self._notification_manager.show_notification("Ошибка!", "Вы не указали цены на все услуги", NotificationType.ERROR)
+            self._notification_manager.show_notification("Ошибка!", "Вы не указали цены на все услуги",
+                                                         NotificationType.ERROR)
             return
 
-        notes_saved: bool = await self._order_manager.update_order_technician_notes(self._order_id, self.technician_notes_box.get_value())
+        notes_saved: bool = await self._order_manager.update_order_technician_notes(self._order_id,
+                                                                                    self.technician_notes_box.get_value())
 
         if notes_saved:
-            self._notification_manager.show_notification("Успех!", "Информация о заказе обновлена!", NotificationType.SUCCESS)
+            self._notification_manager.show_notification("Успех!", "Информация о заказе обновлена!",
+                                                         NotificationType.SUCCESS)
         else:
-            self._notification_manager.show_notification("Ошибка!", "Что-то пошло не так, во время сохранения информации о заказе!", NotificationType.ERROR)
+            self._notification_manager.show_notification("Ошибка!",
+                                                         "Что-то пошло не так, во время сохранения информации о заказе!",
+                                                         NotificationType.ERROR)
 
-        services_updated: bool = await service_manager.update_order_services(self._order_id, self.provided_services_box.get_checked_services())
+        services_updated: bool = await service_manager.update_order_services(self._order_id,
+                                                                             self.provided_services_box.get_checked_services())
 
         if not services_updated and not self.requested_services_box.is_empty():
-            self._notification_manager.show_notification("Предупреждение", "Не было отмечено ни одной выполненной услуги!", NotificationType.WARNING)
+            self._notification_manager.show_notification("Предупреждение",
+                                                         "Не было отмечено ни одной выполненной услуги!",
+                                                         NotificationType.WARNING)
 
     def update_info(self, order: Order):
         self._order_id = order.id
@@ -169,7 +177,10 @@ class _SelectedOrderWidget(QWidget):
             provided: bool = service.is_provided()
             uneditable_price: bool = False if service.name == "Замена" and not provided else True
             clickable: bool = False if provided else True
-            self.provided_services_box.add_service(service=service, uneditable_price=uneditable_price, on_check=self._check_changes, is_provided=True, clickable=clickable)
+            self.provided_services_box.add_service(service=service, uneditable_price=uneditable_price,
+                                                   is_provided=True,
+                                                   clickable=clickable)
+            self.provided_services_box.item_checked.connect(self._check_changes)
 
         requested_services = order.get_requested_services()
         self.requested_services_box.update_list(requested_services)
@@ -182,7 +193,8 @@ class _SelectedOrderWidget(QWidget):
 
     async def start_realtime(self):
         await self._order_manager.init_orders_realtime(self._order_update_handler)
-        await self._storage_manager.init_order_requests_realtime(self._order_request_handler)
+        # await self._storage_manager.init_order_requests_realtime(self._order_request_handler)
+        print("realtime started")
 
         while self.isVisible():
             await asyncio.sleep(1)
@@ -199,8 +211,11 @@ class _SelectedOrderWidget(QWidget):
 
     async def _order_request_handler(self, data: dict) -> None:
         order_id: int = data.get("record").get("order_id")
-        if not order_id == self._order_id: return
-
+        if not order_id == self._order_id:
+            logger.warn(f"{order_id} не равен {self._order_id}")
+            return
+        order = await self._order_manager.get_order(order_id)
+        print(data)
         answer_type: RealtimePostgresChangesListenEvent = data.get("type")
         request_id: int = data.get("record").get("id")
         request = await self._storage_manager.get_request(request_id)
@@ -211,6 +226,54 @@ class _SelectedOrderWidget(QWidget):
                 f"Запрошенный предмет ({request.requested_item}) теперь в ячейке {request.cell_number}",
                 NotificationType.NOTIFY
             )
+            self.update_info(order)
+
+
+class _OrderRequestsWidget(QWidget):
+    def __init__(self, notification_manager: NotificationManager) -> None:
+        super().__init__()
+        self._storage_manager: Optional[StorageManager] = None
+        self._notification_manager = notification_manager
+        main_layout = QVBoxLayout(self)
+        self._order_requests_card_list = CardListWidget()
+        main_layout.addWidget(self._order_requests_card_list)
+
+    def set_managers(self, storage_manager: StorageManager) -> None:
+        self._storage_manager = storage_manager
+
+    async def fill_order_requests_card_list(self, order_id: int) -> None:
+        order_requests: list = await self._storage_manager.get_all_requests()
+
+
+
+
+class _SelectedOrderWidget(QWidget):
+    def __init__(self, notification_manager: NotificationManager) -> None:
+        super().__init__()
+        self._order_manager: Optional[OrderManager] = None
+        self._storage_manager: Optional[StorageManager] = None
+        self._order_info_widget = _OrderInfo(notification_manager)
+        self._order_requests_widget = _OrderRequestsWidget(notification_manager)
+        self._tab_widget = QTabWidget()
+
+    def build_order_info_widget(self, order_manager: OrderManager, storage_manager: StorageManager, order: Order) -> None:
+        self._order_manager = order_manager
+        self._storage_manager = storage_manager
+
+        self._order_info_widget.set_managers(order_manager, storage_manager)
+        self._order_info_widget.update_info(order)
+
+        self._tab_widget.addTab(self._order_info_widget, "Информация о заказе")
+
+        self._order_info_widget.start_realtime()
+
+    async def build_order_requests_widget(self, order_manager: OrderManager, storage_manager: StorageManager, order: Order) -> None:
+        if not self._order_manager: self._order_manager = order_manager
+        if not self._storage_manager: self._storage_manager = storage_manager
+
+
+
+
 
 class TechnicianScreen(QWidget):
     def __init__(self, notification_manager: NotificationManager):
@@ -230,7 +293,6 @@ class TechnicianScreen(QWidget):
         self.stack.addWidget(self._order_selection_ui)
         self.stack.addWidget(self._selected_order_ui)
 
-
         layout.addWidget(self.stack)
 
     @asyncSlot()
@@ -242,10 +304,7 @@ class TechnicianScreen(QWidget):
         if worker_orders:
             for order in worker_orders:
                 if order.is_finished(): continue
-                self._selected_order_ui.set_managers(self.order_manager, self.storage_manager)
-                self._selected_order_ui.update_info(order)
-                self.stack.setCurrentWidget(self._selected_order_ui)
-                await self._selected_order_ui.start_realtime()
+                self._switch_to_order(order)
                 return
         else:
             not_taken_orders: list[Order] = await self.order_manager.get_not_taken_orders()
@@ -255,10 +314,8 @@ class TechnicianScreen(QWidget):
             await self._order_selection_ui.start_realtime()
 
     def _switch_to_order(self, order: Order) -> None:
-        self._selected_order_ui.set_managers(self.order_manager, self.storage_manager)
-        self._selected_order_ui.update_info(order)
+        self._selected_order_ui.build_order_info_widget(self.order_manager, self.storage_manager, order)
         self.stack.setCurrentWidget(self._selected_order_ui)
-        self._selected_order_ui.start_realtime()
 
 class GetOrderDialog(QDialog):
     def __init__(self, order: Order):
